@@ -6,7 +6,7 @@ export default function Home() {
     <div className="container mx-auto">
       <section className="text-center py-10 md:py-20">
         <h1 className="text-4xl md:text-6xl font-bold text-primary-600 mb-4">
-          Learn Spanish with Language AI
+          Learn Spanish with Language AI!
         </h1>
         <p className="text-xl md:text-2xl text-gray-600 max-w-3xl mx-auto mb-8">
           Master Spanish through interactive lessons and AI-powered conversations
