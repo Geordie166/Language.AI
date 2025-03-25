@@ -1,24 +1,23 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { UserProgress, LessonProgress } from '../lib/types';
+import { UserProgress } from '../lib/types';
 
 interface ProgressContextType {
   progress: UserProgress;
-  updateLessonProgress: (lessonId: string, score: number, totalQuestions: number, correctAnswers: number) => void;
-  completeLesson: (lessonId: string) => void;
-  getLessonProgress: (lessonId: string) => LessonProgress;
+  updateConversationProgress: (conversationId: string, score: number) => void;
+  getConversationProgress: (conversationId: string) => {
+    completed: boolean;
+    score: number;
+    lastAttempt: number;
+  } | null;
 }
 
 const ProgressContext = createContext<ProgressContextType | undefined>(undefined);
 
 export function ProgressProvider({ children }: { children: React.ReactNode }) {
   const [progress, setProgress] = useState<UserProgress>({
-    userId: 'anonymous',
-    completedLessons: [],
-    scores: {},
-    streak: 0,
-    lastPracticeDate: new Date(),
+    conversations: {}
   });
 
   useEffect(() => {
@@ -29,47 +28,36 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  useEffect(() => {
-    // Save progress to localStorage
-    localStorage.setItem('userProgress', JSON.stringify(progress));
-  }, [progress]);
-
-  const updateLessonProgress = (lessonId: string, score: number, totalQuestions: number, correctAnswers: number) => {
-    setProgress(prev => ({
-      ...prev,
-      scores: {
-        ...prev.scores,
-        [lessonId]: {
-          lastAttempted: new Date(),
-          score,
-          totalQuestions,
-          correctAnswers,
-        },
-      },
-      lastPracticeDate: new Date(),
-    }));
+  const updateConversationProgress = (conversationId: string, score: number) => {
+    setProgress(prev => {
+      const newProgress = {
+        ...prev,
+        conversations: {
+          ...prev.conversations,
+          [conversationId]: {
+            completed: true,
+            score,
+            lastAttempt: Date.now()
+          }
+        }
+      };
+      localStorage.setItem('userProgress', JSON.stringify(newProgress));
+      return newProgress;
+    });
   };
 
-  const completeLesson = (lessonId: string) => {
-    setProgress(prev => ({
-      ...prev,
-      completedLessons: [...prev.completedLessons, lessonId],
-    }));
-  };
-
-  const getLessonProgress = (lessonId: string): LessonProgress => {
-    const lessonScore = progress.scores[lessonId];
-    return {
-      lessonId,
-      completed: progress.completedLessons.includes(lessonId),
-      score: lessonScore?.score || 0,
-      lastAttempted: lessonScore?.lastAttempted || new Date(),
-      audioExamples: {},
-    };
+  const getConversationProgress = (conversationId: string) => {
+    return progress.conversations[conversationId] || null;
   };
 
   return (
-    <ProgressContext.Provider value={{ progress, updateLessonProgress, completeLesson, getLessonProgress }}>
+    <ProgressContext.Provider
+      value={{
+        progress,
+        updateConversationProgress,
+        getConversationProgress
+      }}
+    >
       {children}
     </ProgressContext.Provider>
   );

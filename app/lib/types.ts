@@ -1,50 +1,19 @@
-export interface UserProgress {
-  userId: string;
-  completedLessons: string[];
-  scores: {
-    [lessonId: string]: {
-      lastAttempted: Date;
-      score: number;
-      totalQuestions: number;
-      correctAnswers: number;
-    };
-  };
-  streak: number;
-  lastPracticeDate: Date;
-}
-
-export interface AudioExample {
-  spanish: string;
-  english: string;
-  audioUrl: string;
-}
-
-export interface PracticeResult {
-  isCorrect: boolean;
-  feedback: string;
-  correctAnswer: string;
-  explanation?: string;
-}
-
-export interface LessonProgress {
-  lessonId: string;
-  completed: boolean;
-  score: number;
-  lastAttempted: Date;
-  audioExamples: {
-    [key: string]: {
-      played: boolean;
-      correct: boolean;
-    };
-  };
-}
-
 export interface Message {
   id: string;
   text: string;
   sender: 'user' | 'ai';
   audioUrl?: string;
   timestamp: number;
+}
+
+export interface UserProgress {
+  conversations: {
+    [id: string]: {
+      completed: boolean;
+      score: number;
+      lastAttempt: number;
+    };
+  };
 }
 
 export interface SavedConversation {
