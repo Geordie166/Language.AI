@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './styles/globals.css';
 import Navigation from './components/Navigation';
+import { ProgressProvider } from './contexts/ProgressContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -18,10 +19,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <Navigation />
-        <main className="min-h-screen p-4 md:p-8 pt-20">
-          {children}
-        </main>
+        <ProgressProvider>
+          <Navigation />
+          <main className="min-h-screen p-4 md:p-8 pt-20">
+            {children}
+          </main>
+        </ProgressProvider>
       </body>
     </html>
   );
