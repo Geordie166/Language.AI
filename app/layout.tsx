@@ -1,14 +1,13 @@
-import type { Metadata } from 'next';
+import { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './styles/globals.css';
-import Navigation from './components/Navigation';
-import { ProgressProvider } from './contexts/ProgressContext';
+import ClientLayout from './ClientLayout';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Language AI - English-Spanish Learning with AI Conversation',
-  description: 'Learn Spanish through interactive lessons and AI-powered conversations',
+  title: 'Language AI - Master Spanish Conversation',
+  description: 'Practice Spanish conversation with AI language partners',
 };
 
 export default function RootLayout({
@@ -17,14 +16,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <ProgressProvider>
-          <Navigation />
-          <main className="min-h-screen p-4 md:p-8 pt-20">
-            {children}
-          </main>
-        </ProgressProvider>
+    <html lang="en" className={`h-full ${inter.className}`}>
+      <body className="h-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+        <ClientLayout>
+          {children}
+        </ClientLayout>
       </body>
     </html>
   );

@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ConversationTemplate from '../components/ConversationTemplate';
 import { Message, SavedConversation } from '../lib/types';
+import { useSpeech } from '../contexts/SpeechContext';
 
 interface ScenarioContext {
   id: string;
@@ -29,17 +30,20 @@ function ConversationLoading() {
 function ConversationContent() {
   const searchParams = useSearchParams();
   const scenarioId = searchParams.get('scenario');
+  const { startListening, stopListening, speak, stopSpeaking } = useSpeech();
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<'english' | 'spanish'>('english');
   const [nativeLanguage, setNativeLanguage] = useState<string>('english');
   const [scenarioContext, setScenarioContext] = useState<ScenarioContext | null>(null);
-  const [showTemplate, setShowTemplate] = useState(true);
+  const [showTemplate, setShowTemplate] = useState(!!scenarioId);
   const [conversationScript, setConversationScript] = useState<ConversationScript | null>(null);
   const [isConversationEnded, setIsConversationEnded] = useState(false);
   const [conversationTitle, setConversationTitle] = useState('');
+  const [recognizedText, setRecognizedText] = useState('');
   const [selfAssessment, setSelfAssessment] = useState<{
     fluency: number;
     accuracy: number;
@@ -60,148 +64,200 @@ function ConversationContent() {
   const mediaRecorderRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // Cleanup function for speech
   useEffect(() => {
-    if (scenarioId) {
-      // In a real implementation, this would fetch the scenario details from an API
-      const scenario = {
-        'daily-life': {
-          title: 'Daily Life',
-          situations: ['Meeting new people', 'Weather talk', 'Weekend plans', 'Shopping'],
-          contexts: [
-            'You are meeting someone new at a social event.',
-            'You are discussing the weather with a colleague.',
-            'You are making weekend plans with friends.',
-            'You are shopping at a local store.'
-          ]
-        },
-        'work-life': {
-          title: 'Work & Career',
-          situations: ['Job interviews', 'Office small talk', 'Email writing'],
-          contexts: [
-            'You are having a job interview for a position you are interested in.',
-            'You are making small talk with colleagues during lunch break.',
-            'You need to write a professional email to a client.'
-          ]
+    return () => {
+      stopSpeaking();
+      stopListening();
+    };
+  }, [stopSpeaking, stopListening]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeConversation = async () => {
+      if (!mounted) return;
+
+      // Stop any ongoing speech before starting new conversation
+      await stopSpeaking();
+      
+      if (scenarioId) {
+        // In a real implementation, this would fetch the scenario details from an API
+        const scenario = {
+          'daily-life': {
+            title: 'Daily Life',
+            situations: ['Meeting new people', 'Weather talk', 'Weekend plans', 'Shopping'],
+            contexts: [
+              'You are meeting someone new at a social event.',
+              'You are discussing the weather with a colleague.',
+              'You are making weekend plans with friends.',
+              'You are shopping at a local store.'
+            ]
+          },
+          'work-life': {
+            title: 'Work & Career',
+            situations: ['Job interviews', 'Office small talk', 'Email writing'],
+            contexts: [
+              'You are having a job interview for a position you are interested in.',
+              'You are making small talk with colleagues during lunch break.',
+              'You need to write a professional email to a client.'
+            ]
+          }
+        }[scenarioId];
+
+        if (scenario) {
+          const randomIndex = Math.floor(Math.random() * scenario.situations.length);
+          setScenarioContext({
+            id: scenarioId,
+            title: scenario.title,
+            currentSituation: scenario.situations[randomIndex],
+            context: scenario.contexts[randomIndex]
+          });
+
+          // Add initial AI message based on the scenario
+          setMessages([{
+            id: '1',
+            text: `Hello! Let's practice a conversation about ${scenario.situations[randomIndex]}. ${scenario.contexts[randomIndex]} Ready to begin?`,
+            sender: 'ai',
+            audioUrl: '/welcome-message.mp3',
+            timestamp: Date.now()
+          }]);
         }
-      }[scenarioId];
-
-      if (scenario) {
-        const randomIndex = Math.floor(Math.random() * scenario.situations.length);
-        setScenarioContext({
-          id: scenarioId,
-          title: scenario.title,
-          currentSituation: scenario.situations[randomIndex],
-          context: scenario.contexts[randomIndex]
-        });
-
-        // Add initial AI message based on the scenario
+      } else {
+        // Free conversation mode
+        const initialMessage = selectedLanguage === 'english'
+          ? "Hi! I'm your English conversation partner. What would you like to talk about today?"
+          : "¡Hola! Soy tu compañero de conversación en español. ¿De qué te gustaría hablar hoy?";
+        
         setMessages([{
           id: '1',
-          text: `Hello! Let's practice a conversation about ${scenario.situations[randomIndex]}. ${scenario.contexts[randomIndex]} Ready to begin?`,
+          text: initialMessage,
           sender: 'ai',
-          audioUrl: '/welcome-message.mp3',
           timestamp: Date.now()
         }]);
+
+        // Speak the initial message after a short delay
+        setTimeout(async () => {
+          if (!mounted) return;
+          try {
+            await speak(initialMessage);
+          } catch (error) {
+            console.error('Error speaking initial message:', error);
+          }
+        }, 500);
       }
-    } else {
-      // Free conversation mode
-      setMessages([{
-        id: '1',
-        text: "Hi! I'm your English conversation partner. What would you like to talk about today?",
-        sender: 'ai',
-        audioUrl: '/welcome-message.mp3',
-        timestamp: Date.now()
-      }]);
-    }
-  }, [scenarioId]);
+    };
+
+    initializeConversation();
+
+    // Cleanup function
+    return () => {
+      mounted = false;
+      stopSpeaking();
+    };
+  }, [scenarioId, selectedLanguage, speak, stopSpeaking]);
   
-  const startRecording = () => {
-    setIsRecording(true);
-    
-    // In a real implementation, this would start actual recording
-    // mediaRecorderRef.current = new MediaRecorder(stream);
-    // mediaRecorderRef.current.start();
-    
-    // For demo purposes, we'll just set a timeout to simulate recording
-    setTimeout(() => {
-      stopRecording();
-    }, 5000); // Simulate a 5-second recording
+  const startRecording = async () => {
+    try {
+      setIsRecording(true);
+      setRecognizedText('Listening...');
+      
+      startListening(
+        (interimText) => {
+          setRecognizedText(`${interimText}...`);
+        },
+        (finalText) => {
+          setRecognizedText('');
+          processUserInput(finalText);
+          setIsRecording(false);
+        }
+      );
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      setIsRecording(false);
+      setRecognizedText('Error: Could not start recording');
+    }
   };
   
-  const stopRecording = () => {
-    setIsRecording(false);
+  const stopRecording = async () => {
+    try {
+      await stopListening();
+      setIsRecording(false);
+    } catch (err) {
+      console.error('Error stopping recording:', err);
+    }
+  };
+  
+  const processUserInput = async (text: string) => {
     setIsProcessing(true);
     
-    // In a real implementation, this would process the recorded audio
-    // mediaRecorderRef.current.stop();
-    
-    // Simulate processing time
-    setTimeout(() => {
-      processAudio();
-    }, 2000);
-  };
-  
-  const processAudio = () => {
-    // Simulate the speech-to-text processing
-    let userMessage;
-    let aiResponse;
-
-    if (scenarioContext) {
-      // Scenario-specific responses
-      switch (scenarioContext.id) {
-        case 'restaurant':
-          userMessage = selectedLanguage === 'english'
-            ? "I'd like to order the paella, please."
-            : "Quisiera pedir la paella, por favor.";
-          aiResponse = selectedLanguage === 'english'
-            ? "Excelente elección. ¿Le gustaría alguna bebida para acompañar?"
-            : "Great choice. Would you like any drinks to go with that?";
-          break;
-        case 'daily-life':
-          userMessage = selectedLanguage === 'english'
-            ? "Nice to meet you! I'm John."
-            : "¡Mucho gusto! Me llamo John.";
-          aiResponse = selectedLanguage === 'english'
-            ? "¡Encantado! Me llamo Carlos. ¿De dónde eres?"
-            : "Nice to meet you! I'm Carlos. Where are you from?";
-          break;
-        default:
-          userMessage = selectedLanguage === 'english'
-            ? "Hello, how are you? I'm learning Spanish."
-            : "Hola, ¿qué tal? Estoy aprendiendo español.";
-          aiResponse = selectedLanguage === 'english'
-            ? "¡Muy bien! Es genial que estés aprendiendo español. ¿Cuánto tiempo llevas estudiando?"
-            : "Very good! It's great that you're learning Spanish. How long have you been studying?";
-      }
-    } else {
-      // Free conversation mode
-      userMessage = selectedLanguage === 'english'
-        ? "Hello, how are you? I'm learning Spanish."
-        : "Hola, ¿qué tal? Estoy aprendiendo español.";
-      aiResponse = selectedLanguage === 'english'
-        ? "¡Muy bien! Es genial que estés aprendiendo español. ¿Cuánto tiempo llevas estudiando?"
-        : "Very good! It's great that you're learning Spanish. How long have you been studying?";
-    }
-      
-    addMessage({
+    // Add user message
+    const userMessage: Message = {
       id: Date.now().toString(),
-      text: userMessage,
+      text,
       sender: 'user',
       timestamp: Date.now()
-    });
+    };
+    addMessage(userMessage);
+
+    // Generate contextual AI response based on the conversation history
+    let aiResponse = '';
+    const lastAiMessage = messages.filter(m => m.sender === 'ai').pop();
     
-    // Simulate getting a response from the AI
-    setTimeout(() => {
-      addMessage({
+    if (text.toLowerCase().includes('hola') || text.toLowerCase().includes('hello')) {
+      aiResponse = selectedLanguage === 'english'
+        ? "¡Hola! Me llamo Carlos. ¿De dónde eres?"
+        : "Hi! I'm Carlos. Where are you from?";
+    } else if (lastAiMessage?.text.includes('¿De dónde eres?') || lastAiMessage?.text.includes('Where are you from?')) {
+      aiResponse = selectedLanguage === 'english'
+        ? "¡Qué interesante! ¿Cuánto tiempo llevas estudiando español?"
+        : "That's interesting! How long have you been studying Spanish?";
+    } else if (text.toLowerCase().includes('año') || text.toLowerCase().includes('year') || 
+               text.toLowerCase().includes('mes') || text.toLowerCase().includes('month')) {
+      aiResponse = selectedLanguage === 'english'
+        ? "¡Muy bien! ¿Qué te motivó a aprender español?"
+        : "Great! What motivated you to learn Spanish?";
+    } else if (text.toLowerCase().includes('trabajo') || text.toLowerCase().includes('work') ||
+               text.toLowerCase().includes('viaje') || text.toLowerCase().includes('travel') ||
+               text.toLowerCase().includes('cultura') || text.toLowerCase().includes('culture')) {
+      aiResponse = selectedLanguage === 'english'
+        ? "¡Excelente motivación! ¿Te gustaría practicar algún tema específico hoy?"
+        : "Excellent motivation! Would you like to practice any specific topic today?";
+    } else if (text.toLowerCase().includes('restaurante') || text.toLowerCase().includes('restaurant') ||
+               text.toLowerCase().includes('comida') || text.toLowerCase().includes('food')) {
+      aiResponse = selectedLanguage === 'english'
+        ? "¡Perfecto! Imaginemos que estamos en un restaurante. ¿Qué te gustaría ordenar?"
+        : "Perfect! Let's imagine we're at a restaurant. What would you like to order?";
+    } else if (text.toLowerCase().includes('gracias') || text.toLowerCase().includes('thank')) {
+      aiResponse = selectedLanguage === 'english'
+        ? "¡De nada! ¿Hay algo más en lo que pueda ayudarte?"
+        : "You're welcome! Is there anything else I can help you with?";
+    } else {
+      // Default response for unrecognized input
+      aiResponse = selectedLanguage === 'english'
+        ? "¡Interesante! ¿Podrías contarme más sobre eso?"
+        : "Interesting! Could you tell me more about that?";
+    }
+
+    // Add AI response with a slight delay
+    setTimeout(async () => {
+      const aiMessage: Message = {
         id: Date.now().toString(),
         text: aiResponse,
         sender: 'ai',
-        audioUrl: '/ai-response.mp3',
         timestamp: Date.now()
-      });
+      };
+      addMessage(aiMessage);
+      
+      // Speak the AI response with proper cleanup
+      try {
+        await handleSpeak(aiResponse);
+      } catch (error) {
+        console.error('Error speaking AI response:', error);
+      }
       
       setIsProcessing(false);
-    }, 1500);
+    }, 1000);
   };
   
   const addMessage = (message: Message) => {
@@ -304,6 +360,16 @@ function ConversationContent() {
     });
   };
 
+  // Function to handle text-to-speech
+  const handleSpeak = async (text: string) => {
+    try {
+      await stopSpeaking(); // Stop any ongoing speech
+      await speak(text);
+    } catch (error) {
+      console.error('Error speaking:', error);
+    }
+  };
+
   return (
     <div className="container mx-auto max-w-4xl">
       <div className="card min-h-[70vh] flex flex-col">
@@ -399,22 +465,41 @@ function ConversationContent() {
                         : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white'
                     }`}
                   >
-                    <p>{message.text}</p>
-                    {message.audioUrl && message.sender === 'ai' && (
-                      <button 
-                        onClick={() => playAudio(message.audioUrl!)}
-                        className="mt-2 text-primary-600 hover:text-primary-700 text-sm flex items-center"
-                      >
-                        <svg className="w-4 h-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Play audio
-                      </button>
-                    )}
+                    <div className="flex items-center justify-between gap-2">
+                      <p>{message.text}</p>
+                      {message.sender === 'ai' && (
+                        <button
+                          onClick={() => handleSpeak(message.text)}
+                          className={`ml-2 p-1.5 rounded-full transition-colors ${
+                            isSpeaking 
+                              ? 'bg-red-500 hover:bg-red-600' 
+                              : 'bg-primary-500 hover:bg-primary-600'
+                          }`}
+                          title={isSpeaking ? "Stop Speaking" : "Play Message"}
+                        >
+                          {isSpeaking ? (
+                            <svg className="w-4 h-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <rect x="6" y="6" width="12" height="12" stroke="none" fill="currentColor" />
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.8l5.7 5.7-5.7 5.7" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
+              
+              {recognizedText && (
+                <div className="text-left mb-4">
+                  <div className="inline-block bg-gray-100 dark:bg-gray-800 p-3 rounded-lg">
+                    <p className="text-gray-500 dark:text-gray-400 italic">{recognizedText}</p>
+                  </div>
+                </div>
+              )}
               
               {isProcessing && (
                 <div className="text-left mb-4">
