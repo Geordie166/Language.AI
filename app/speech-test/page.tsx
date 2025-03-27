@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import SpeechTest from '../components/SpeechTest';
 
 export default function SpeechTestPage() {
