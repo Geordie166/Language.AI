@@ -17,7 +17,16 @@ const ProgressContext = createContext<ProgressContextType | undefined>(undefined
 
 export function ProgressProvider({ children }: { children: React.ReactNode }) {
   const [progress, setProgress] = useState<UserProgress>({
-    conversations: {}
+    conversations: {},
+    statistics: {
+      totalConversations: 0,
+      totalPracticeTime: 0,
+      averageScore: 0,
+      completedScenarios: 0,
+      currentStreak: 0,
+      longestStreak: 0
+    },
+    achievements: []
   });
 
   useEffect(() => {
@@ -47,7 +56,15 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getConversationProgress = (conversationId: string) => {
-    return progress.conversations[conversationId] || null;
+    const conversationProgress = progress.conversations[conversationId];
+    if (!conversationProgress) {
+      return null;
+    }
+    return {
+      completed: conversationProgress.completed,
+      score: conversationProgress.score || 0,
+      lastAttempt: conversationProgress.lastAttempt || Date.now()
+    };
   };
 
   return (

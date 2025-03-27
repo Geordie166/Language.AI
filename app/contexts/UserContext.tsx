@@ -32,20 +32,35 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           learningGoals: ['Improve conversation skills', 'Learn business English'],
           joinedDate: new Date().toISOString(),
           lastActive: new Date().toISOString(),
+          settings: {
+            theme: 'light',
+            emailNotifications: false,
+            practiceReminders: true,
+            audioEnabled: true,
+            autoPlayPronunciation: false,
+            preferredPracticeTime: 30,
+            dailyGoal: 3,
+            interfaceLanguage: 'en',
+            fontSize: 'medium',
+            highContrastMode: false,
+            keyboardShortcuts: true,
+            showProgressChart: true,
+            showStreak: true,
+            privacyMode: 'private'
+          }
         };
 
         const mockProgress: UserProgress = {
-          userId: '1',
-          scenarioProgress: {},
+          conversations: {},
           statistics: {
             totalConversations: 0,
             totalPracticeTime: 0,
             averageScore: 0,
             completedScenarios: 0,
             currentStreak: 0,
-            longestStreak: 0,
+            longestStreak: 0
           },
-          achievements: [],
+          achievements: []
         };
 
         setUserProfile(mockProfile);
