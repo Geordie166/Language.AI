@@ -14,7 +14,10 @@ export class SpeechService {
   private recognizer: sdk.SpeechRecognizer | null = null;
   private isListening: boolean = false;
   private isSpeaking: boolean = false;
+  private isPaused: boolean = false;
+  private isMuted: boolean = false;
   private currentSpeechPromise: Promise<void> | null = null;
+  private volume: number = 1;
 
   constructor() {
     const subscriptionKey = process.env.NEXT_PUBLIC_AZURE_SPEECH_KEY;
@@ -56,6 +59,9 @@ export class SpeechService {
   }
 
   async speak(text: string): Promise<void> {
+    if (this.isMuted) {
+      return; // Skip speaking when muted
+    }
     if (this.isSpeaking) {
       await this.stopSpeaking();
     }
@@ -174,6 +180,52 @@ export class SpeechService {
     return normalizedReference === normalizedSpoken ? 1.0 : 0.5;
   }
 
+  setMuted(muted: boolean): void {
+    this.isMuted = muted;
+    if (this.synthesizer) {
+      // Store current volume and set to 0 if muted, restore if unmuted
+      if (muted) {
+        this.volume = SPEECH_CONFIG.volume;
+        SPEECH_CONFIG.volume = 0;
+      } else {
+        SPEECH_CONFIG.volume = this.volume;
+      }
+    }
+  }
+
+  async pauseListening(): Promise<void> {
+    if (this.isListening && !this.isPaused && this.recognizer) {
+      this.isPaused = true;
+      await this.recognizer.stopContinuousRecognitionAsync();
+    }
+  }
+
+  async resumeListening(
+    onInterimResult: (text: string) => void,
+    onFinalResult: (text: string) => void
+  ): Promise<void> {
+    if (this.isListening && this.isPaused && this.recognizer) {
+      this.isPaused = false;
+      this.recognizer.recognized = (_, event) => {
+        if (event.result.reason === sdk.ResultReason.RecognizedSpeech) {
+          onFinalResult(event.result.text);
+        }
+      };
+      this.recognizer.recognizing = (_, event) => {
+        onInterimResult(event.result.text);
+      };
+      await this.recognizer.startContinuousRecognitionAsync();
+    }
+  }
+
+  getMuted(): boolean {
+    return this.isMuted;
+  }
+
+  getPaused(): boolean {
+    return this.isPaused;
+  }
+
   dispose(): void {
     if (this.synthesizer) {
       this.synthesizer.close();
@@ -190,5 +242,7 @@ export class SpeechService {
     this.isListening = false;
     this.isSpeaking = false;
     this.currentSpeechPromise = null;
+    this.isPaused = false;
+    this.isMuted = false;
   }
 } 
