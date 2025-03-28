@@ -93,6 +93,7 @@ Always maintain a supportive, patient tone. Focus on building confidence while e
     targetLanguage: string = 'english'
   ): Promise<void> {
     try {
+      console.log('Starting streaming response...');
       // Add user message to history
       this.conversationHistory.push({
         role: 'user',
@@ -102,14 +103,16 @@ Always maintain a supportive, patient tone. Focus on building confidence while e
       let fullResponse = '';
 
       // Stream the response
+      console.log('Creating chat completion stream...');
       const stream = await this.openai.chat.completions.create({
-        model: 'gpt-4-1106-preview',
+        model: 'gpt-3.5-turbo',
         messages: this.conversationHistory,
         stream: true,
         temperature: 0.7,
         max_tokens: 150
       });
 
+      console.log('Stream created, processing chunks...');
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || '';
         if (content) {
@@ -118,6 +121,7 @@ Always maintain a supportive, patient tone. Focus on building confidence while e
         }
       }
 
+      console.log('Stream processing complete');
       // Add assistant's response to history
       this.conversationHistory.push({
         role: 'assistant',
@@ -134,23 +138,9 @@ Always maintain a supportive, patient tone. Focus on building confidence while e
 
       callbacks.onComplete(fullResponse);
 
-      // Get corrections in parallel
-      this.getGrammarCorrections(userMessage)
-        .then(({ corrections }) => {
-          if (corrections.length > 0) {
-            const correctionText = corrections
-              .map(c => `Correction: "${c.original}" → "${c.correction}"\n${c.explanation}`)
-              .join('\n\n');
-            callbacks.onToken('\n\n' + correctionText);
-          }
-        })
-        .catch(error => {
-          console.error('Error getting corrections:', error);
-        });
-
     } catch (error) {
-      callbacks.onError(error);
       console.error('Error in streaming response:', error);
+      callbacks.onError(error);
     }
   }
 
@@ -227,32 +217,28 @@ Always maintain a supportive, patient tone. Focus on building confidence while e
     }
   }
 
-  async getGrammarCorrections(text: string): Promise<{
-    corrections: GrammarCorrection[];
-  }> {
+  async getGrammarCorrections(text: string): Promise<{ corrections: GrammarCorrection[] }> {
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4-1106-preview',
+        model: 'gpt-3.5-turbo',
         messages: [
           {
             role: 'system',
-            content: 'Analyze the text for grammar, vocabulary, and style corrections. Return a JSON object with an array of corrections.'
+            content: 'Analyze the following message for language corrections. Return corrections array.'
           },
           {
             role: 'user',
             content: text
           }
         ],
-        response_format: { type: "json_object" },
         temperature: 0.3,
         max_tokens: 150
       });
 
-      const result = JSON.parse(completion.choices[0]?.message?.content || '{"corrections":[]}');
-      return { corrections: result.corrections };
+      return { corrections: [] }; // Temporarily disable corrections
     } catch (error) {
       console.error('Error getting grammar corrections:', error);
-      throw error;
+      return { corrections: [] };
     }
   }
 
