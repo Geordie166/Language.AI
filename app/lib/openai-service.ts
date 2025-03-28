@@ -18,20 +18,41 @@ export class OpenAIService {
   private conversationHistory: Array<{ role: 'system' | 'user' | 'assistant', content: string }> = [];
 
   constructor() {
+    if (typeof window === 'undefined') {
+      throw new Error('OpenAI service should only be initialized on the client side');
+    }
+
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
     if (!apiKey) {
+      console.error('OpenAI API key not found in environment variables');
       throw new Error('OpenAI API key not found');
     }
-    this.openai = new OpenAI({ apiKey });
-    
+
+    try {
+      console.log('Initializing OpenAI service...');
+      this.openai = new OpenAI({ 
+        apiKey,
+        dangerouslyAllowBrowser: true
+      });
+      console.log('OpenAI service initialized successfully');
+    } catch (error) {
+      console.error('Error initializing OpenAI service:', error);
+      throw new Error('Failed to initialize OpenAI service');
+    }
+
     // Initialize with system message
     this.conversationHistory = [{
       role: 'system',
-      content: `You are an expert language learning assistant with deep knowledge of language acquisition, teaching methodologies, and cultural context. Your role is to:
+      content: this.getSystemPrompt('english', 'beginner')
+    }];
+  }
+
+  private getSystemPrompt(language: string, level: string): string {
+    return `You are an expert ${language} language learning assistant with deep knowledge of language acquisition, teaching methodologies, and cultural context. Your role is to:
 
 1. CONVERSATION:
 - Engage in natural, level-appropriate conversations
-- Use vocabulary and structures suitable for the student's level
+- Use vocabulary and structures suitable for a ${level} level student
 - Incorporate cultural context when relevant
 - Keep responses concise (2-3 sentences max unless explanation needed)
 
@@ -50,11 +71,19 @@ export class OpenAIService {
 - Provide positive reinforcement
 - Create opportunities for the student to practice target structures
 
-Current language: English (adjustable)
-Student's level: Beginner (adjustable)
+Current language: ${language}
+Student's level: ${level}
 
-Always maintain a supportive, patient tone. Focus on building confidence while ensuring accuracy.`
-    }];
+Always maintain a supportive, patient tone. Focus on building confidence while ensuring accuracy.`;
+  }
+
+  public updateSystemMessage(language: string, level: string = 'beginner'): void {
+    if (this.conversationHistory.length > 0) {
+      this.conversationHistory[0] = {
+        role: 'system',
+        content: this.getSystemPrompt(language, level)
+      };
+    }
   }
 
   async getStreamingResponse(
@@ -230,17 +259,5 @@ Always maintain a supportive, patient tone. Focus on building confidence while e
   // Reset conversation history but keep system message
   resetConversation(): void {
     this.conversationHistory = [this.conversationHistory[0]];
-  }
-
-  // Update system message for different languages or levels
-  updateSystemMessage(targetLanguage: string, level: string): void {
-    const currentMessage = this.conversationHistory[0].content;
-    this.conversationHistory[0] = {
-      role: 'system',
-      content: currentMessage.replace(
-        /Current language:.*\nStudent's level:.*/,
-        `Current language: ${targetLanguage}\nStudent's level: ${level}`
-      )
-    };
   }
 } 

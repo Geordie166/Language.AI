@@ -75,8 +75,8 @@ function ConversationContent() {
   const mediaRecorderRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   
-  // Add OpenAI service state
-  const [openAIService] = useState(() => new OpenAIService());
+  const [openAIService, setOpenAIService] = useState<OpenAIService | null>(null);
+  const [openAIError, setOpenAIError] = useState<string | null>(null);
 
   // Cleanup function for speech
   useEffect(() => {
@@ -203,6 +203,18 @@ function ConversationContent() {
   };
   
   const processUserInput = async (text: string) => {
+    if (!openAIService) {
+      console.error('OpenAI service not initialized');
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        text: 'Sorry, the AI service is not available right now. Please try again later.',
+        sender: 'ai',
+        timestamp: Date.now()
+      };
+      addMessage(errorMessage);
+      return;
+    }
+
     setIsProcessing(true);
     
     // Add user message
@@ -225,12 +237,10 @@ function ConversationContent() {
     addMessage(tempMessage);
 
     try {
-      // Use streaming response
       await openAIService.getStreamingResponse(
         text,
         {
           onToken: (token) => {
-            // Update the temporary message with new tokens
             setMessages(prev => prev.map(msg => 
               msg.id === tempMessageId
                 ? { ...msg, text: msg.text + token }
@@ -238,7 +248,6 @@ function ConversationContent() {
             ));
           },
           onComplete: async (fullResponse) => {
-            // Message is complete, start speaking
             try {
               await handleSpeak(fullResponse);
             } catch (error) {
@@ -249,8 +258,6 @@ function ConversationContent() {
           onError: (error) => {
             console.error('Error in streaming response:', error);
             setIsProcessing(false);
-            
-            // Update the temporary message to show error
             setMessages(prev => prev.map(msg => 
               msg.id === tempMessageId
                 ? { ...msg, text: "I'm sorry, I encountered an error. Please try again." }
@@ -258,14 +265,12 @@ function ConversationContent() {
             ));
           }
         },
-        'beginner', // You can make this dynamic based on user's level
+        'beginner',
         selectedLanguage
       );
     } catch (error) {
       console.error('Error processing message:', error);
       setIsProcessing(false);
-      
-      // Update the temporary message to show error
       setMessages(prev => prev.map(msg => 
         msg.id === tempMessageId
           ? { ...msg, text: "I'm sorry, I encountered an error. Please try again." }
@@ -396,13 +401,38 @@ function ConversationContent() {
     setMuted(!isMuted);
   };
 
-  // Update language selection effect
+  // Initialize OpenAI service
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeOpenAI = () => {
+      try {
+        if (typeof window !== 'undefined') {
+          const service = new OpenAIService();
+          if (mounted) {
+            setOpenAIService(service);
+            setOpenAIError(null);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to initialize OpenAI service:', error);
+        if (mounted) {
+          setOpenAIError('Failed to initialize AI service. Please check your configuration.');
+        }
+      }
+    };
+
+    initializeOpenAI();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Update system message when language changes
   useEffect(() => {
     if (openAIService) {
-      openAIService.updateSystemMessage(
-        selectedLanguage,
-        'beginner' // You can make this dynamic
-      );
+      openAIService.updateSystemMessage(selectedLanguage, 'beginner');
     }
   }, [selectedLanguage, openAIService]);
 
