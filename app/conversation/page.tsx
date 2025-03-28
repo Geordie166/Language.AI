@@ -40,7 +40,8 @@ function ConversationContent() {
     resumeListening,
     setMuted,
     isPaused,
-    isMuted
+    isMuted,
+    setLanguage
   } = useSpeech();
   
   const [messages, setMessages] = useState<Message[]>([]);
@@ -178,9 +179,11 @@ function ConversationContent() {
       
       startListening(
         (interimText) => {
+          console.log('Interim text:', interimText);
           setRecognizedText(`${interimText}...`);
         },
         (finalText) => {
+          console.log('Final text:', finalText);
           setRecognizedText('');
           processUserInput(finalText);
           setIsRecording(false);
@@ -429,12 +432,14 @@ function ConversationContent() {
     };
   }, []);
 
-  // Update system message when language changes
+  // Update language selection effect
   useEffect(() => {
     if (openAIService) {
       openAIService.updateSystemMessage(selectedLanguage, 'beginner');
     }
-  }, [selectedLanguage, openAIService]);
+    // Update speech service language
+    setLanguage(selectedLanguage);
+  }, [selectedLanguage, openAIService, setLanguage]);
 
   // Add keyboard shortcut handler
   useEffect(() => {

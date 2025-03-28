@@ -8,6 +8,7 @@ interface SpeechContextType {
   isSpeaking: boolean;
   isPaused: boolean;
   isMuted: boolean;
+  currentLanguage: string;
   startListening: (
     onInterimResult: (text: string) => void,
     onFinalResult: (text: string) => void
@@ -19,6 +20,7 @@ interface SpeechContextType {
   assessPronunciation: (referenceText: string, spokenText: string) => Promise<any>;
   stopSpeaking: () => Promise<void>;
   setMuted: (muted: boolean) => void;
+  setLanguage: (language: string) => Promise<void>;
 }
 
 const SpeechContext = createContext<SpeechContextType | undefined>(undefined);
@@ -33,6 +35,7 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
     onInterimResult: (text: string) => void;
     onFinalResult: (text: string) => void;
   } | null>(null);
+  const [currentLanguage, setCurrentLanguage] = useState('english');
 
   useEffect(() => {
     // Initialize speech service
@@ -50,6 +53,30 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, []);
+
+  const setLanguage = useCallback(async (language: string) => {
+    if (!speechService) return;
+    
+    const wasListening = isListening;
+    if (wasListening) {
+      await stopListening();
+    }
+
+    try {
+      await speechService.setLanguage(language);
+      setCurrentLanguage(language);
+
+      // Restart listening if it was active
+      if (wasListening && currentCallbacks) {
+        await startListening(
+          currentCallbacks.onInterimResult,
+          currentCallbacks.onFinalResult
+        );
+      }
+    } catch (error) {
+      console.error('Error setting language:', error);
+    }
+  }, [speechService, isListening, currentCallbacks]);
 
   const startListening = useCallback(async (
     onInterimResult: (text: string) => void,
@@ -138,6 +165,7 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
         isSpeaking,
         isPaused,
         isMuted,
+        currentLanguage,
         startListening,
         stopListening,
         pauseListening,
@@ -145,7 +173,8 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
         speak,
         assessPronunciation,
         stopSpeaking,
-        setMuted
+        setMuted,
+        setLanguage
       }}
     >
       {children}

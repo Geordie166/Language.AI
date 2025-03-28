@@ -1,11 +1,19 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 
-const SPEECH_CONFIG = {
-  voiceName: 'es-ES-AlvaroNeural',
-  language: 'es-ES',
-  pitch: 1,
-  rate: 1,
-  volume: 1
+interface LanguageConfig {
+  voiceName: string;
+  language: string;
+}
+
+const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
+  english: {
+    voiceName: 'en-US-JennyNeural',
+    language: 'en-US'
+  },
+  spanish: {
+    voiceName: 'es-ES-AlvaroNeural',
+    language: 'es-ES'
+  }
 };
 
 export class SpeechService {
@@ -18,6 +26,7 @@ export class SpeechService {
   private isMuted: boolean = false;
   private currentSpeechPromise: Promise<void> | null = null;
   private volume: number = 1;
+  private currentLanguage: string = 'english';
 
   constructor() {
     const subscriptionKey = process.env.NEXT_PUBLIC_AZURE_SPEECH_KEY;
@@ -28,8 +37,32 @@ export class SpeechService {
     }
 
     this.speechConfig = sdk.SpeechConfig.fromSubscription(subscriptionKey, region);
-    this.speechConfig.speechSynthesisVoiceName = SPEECH_CONFIG.voiceName;
-    this.speechConfig.speechRecognitionLanguage = SPEECH_CONFIG.language;
+    this.updateLanguageConfig('english');
+  }
+
+  private updateLanguageConfig(language: string) {
+    if (!this.speechConfig) return;
+    
+    const config = LANGUAGE_CONFIGS[language.toLowerCase()] || LANGUAGE_CONFIGS.english;
+    this.speechConfig.speechSynthesisVoiceName = config.voiceName;
+    this.speechConfig.speechRecognitionLanguage = config.language;
+    this.currentLanguage = language.toLowerCase();
+  }
+
+  async setLanguage(language: string) {
+    const oldLanguage = this.currentLanguage;
+    this.updateLanguageConfig(language);
+    
+    // Reinitialize if language changed
+    if (oldLanguage !== this.currentLanguage) {
+      if (this.isListening) {
+        await this.stopListening();
+        // The caller should handle restarting listening if needed
+      }
+      if (this.isSpeaking) {
+        await this.stopSpeaking();
+      }
+    }
   }
 
   private async initSynthesizer() {
@@ -55,7 +88,8 @@ export class SpeechService {
       throw new Error('Speech config not initialized');
     }
 
-    this.recognizer = new sdk.SpeechRecognizer(this.speechConfig);
+    const audioConfig = sdk.AudioConfig.fromDefaultMicrophoneInput();
+    this.recognizer = new sdk.SpeechRecognizer(this.speechConfig, audioConfig);
   }
 
   async speak(text: string): Promise<void> {
@@ -185,10 +219,10 @@ export class SpeechService {
     if (this.synthesizer) {
       // Store current volume and set to 0 if muted, restore if unmuted
       if (muted) {
-        this.volume = SPEECH_CONFIG.volume;
-        SPEECH_CONFIG.volume = 0;
+        this.volume = 1;
+        this.volume = 0;
       } else {
-        SPEECH_CONFIG.volume = this.volume;
+        this.volume = 1;
       }
     }
   }
@@ -206,15 +240,7 @@ export class SpeechService {
   ): Promise<void> {
     if (this.isListening && this.isPaused && this.recognizer) {
       this.isPaused = false;
-      this.recognizer.recognized = (_, event) => {
-        if (event.result.reason === sdk.ResultReason.RecognizedSpeech) {
-          onFinalResult(event.result.text);
-        }
-      };
-      this.recognizer.recognizing = (_, event) => {
-        onInterimResult(event.result.text);
-      };
-      await this.recognizer.startContinuousRecognitionAsync();
+      await this.startListening(onInterimResult, onFinalResult);
     }
   }
 
