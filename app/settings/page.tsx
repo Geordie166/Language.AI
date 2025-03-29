@@ -1,32 +1,36 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUser } from '../contexts/UserContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useUser } from '../context/user-context';
+import { useTheme } from '../context/theme-context';
 import type { UserSettings } from '../lib/types';
 
 export default function SettingsPage() {
-  const { userProfile, updateProfile } = useUser();
+  const { user, setUser, isLoading } = useUser();
   const { isDarkMode, toggleDarkMode } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
-  const [settings, setSettings] = useState<UserSettings>(
-    userProfile?.settings || {
-      theme: isDarkMode ? 'dark' : 'light',
-      emailNotifications: true,
-      practiceReminders: true,
-      audioEnabled: true,
-      autoPlayPronunciation: false,
-      preferredPracticeTime: 30,
-      dailyGoal: 3,
-      interfaceLanguage: 'en',
-      fontSize: 'medium',
-      highContrastMode: false,
-      keyboardShortcuts: true,
-      showProgressChart: true,
-      showStreak: true,
-      privacyMode: 'public',
+  const [settings, setSettings] = useState<UserSettings>({
+    theme: isDarkMode ? 'dark' : 'light',
+    emailNotifications: true,
+    practiceReminders: true,
+    audioEnabled: true,
+    autoPlayPronunciation: false,
+    preferredPracticeTime: 30,
+    dailyGoal: 3,
+    interfaceLanguage: 'en',
+    fontSize: 'medium',
+    highContrastMode: false,
+    keyboardShortcuts: true,
+    showProgressChart: true,
+    showStreak: true,
+    privacyMode: 'public',
+  });
+
+  useEffect(() => {
+    if (user?.settings) {
+      setSettings(user.settings);
     }
-  );
+  }, [user]);
 
   useEffect(() => {
     setSettings(prev => ({
@@ -42,13 +46,53 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await updateProfile({ settings });
+      if (user) {
+        const updatedUser = {
+          ...user,
+          settings
+        };
+        setUser(updatedUser);
+        // Here you would typically also save to your backend
+      }
     } catch (error) {
       console.error('Failed to save settings:', error);
     } finally {
       setIsSaving(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-3xl font-bold mb-8">Settings</h1>
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <div className="animate-pulse">
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4"></div>
+              <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded mb-4"></div>
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-4"></div>
+              <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-3xl font-bold mb-8">Settings</h1>
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <p className="text-center text-gray-600 dark:text-gray-400">
+              Please sign in to access settings
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">

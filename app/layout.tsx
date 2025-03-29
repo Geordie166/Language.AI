@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { UserProvider } from './context/user-context';
 import { SpeechProvider } from './context/speech-context';
+import { ThemeProvider } from './context/theme-context';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,9 +21,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <UserProvider>
-          <SpeechProvider>
-            {children}
-          </SpeechProvider>
+          <ThemeProvider>
+            <SpeechProvider>
+              {children}
+            </SpeechProvider>
+          </ThemeProvider>
         </UserProvider>
       </body>
     </html>

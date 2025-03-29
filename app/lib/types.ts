@@ -114,4 +114,11 @@ export interface WaitlistEntry {
   preferredLanguage?: string;
   source?: string;
   notes?: string;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  settings?: UserSettings;
 } 
