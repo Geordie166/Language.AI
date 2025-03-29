@@ -6,6 +6,7 @@ import ConversationTemplate from '../components/ConversationTemplate';
 import { Message, SavedConversation } from '../lib/types';
 import { useSpeech } from '../contexts/SpeechContext';
 import { OpenAIService } from '../lib/openai-service';
+import toast from 'react-hot-toast';
 
 interface ScenarioContext {
   id: string;
@@ -41,13 +42,15 @@ function ConversationContent() {
     setMuted,
     isPaused,
     isMuted,
-    setLanguage
+    setLanguage,
+    isListening,
+    isSpeaking,
+    errorMessage
   } = useSpeech();
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<'english' | 'spanish'>('english');
   const [nativeLanguage, setNativeLanguage] = useState<string>('english');
   const [scenarioContext, setScenarioContext] = useState<ScenarioContext | null>(null);
@@ -172,6 +175,22 @@ function ConversationContent() {
     };
   }, [scenarioId, selectedLanguage, speak, stopSpeaking]);
   
+  // Add error message effect
+  useEffect(() => {
+    if (errorMessage) {
+      console.error('Speech service error:', errorMessage);
+      toast.error(errorMessage, {
+        duration: 3000,
+        position: 'bottom-right',
+      });
+      
+      // Auto-reset recognizedText if there's an error during listening
+      if (isListening && recognizedText) {
+        setRecognizedText('');
+      }
+    }
+  }, [errorMessage, isListening, recognizedText]);
+  
   const startRecording = async () => {
     if (isProcessing || isRecording) return;
     
@@ -197,6 +216,12 @@ function ConversationContent() {
       console.error('Error starting recording:', err);
       setIsRecording(false);
       setRecognizedText('Error: Could not start recording. Please check your microphone permissions.');
+      
+      // Toast error
+      toast.error('Failed to start recording. Check microphone permissions and try again.', {
+        duration: 3000,
+        position: 'bottom-center',
+      });
       
       // Auto-reset error message after 3 seconds
       setTimeout(() => {
@@ -253,41 +278,62 @@ function ConversationContent() {
         text,
         {
           onToken: (token) => {
-            setMessages(prev => prev.map(msg => 
-              msg.id === tempMessageId
-                ? { ...msg, text: msg.text + token }
-                : msg
-            ));
+            // Update the temporary message with each token
+            setMessages(prevMessages => 
+              prevMessages.map(msg => 
+                msg.id === tempMessageId 
+                  ? { ...msg, text: msg.text + token } 
+                  : msg
+              )
+            );
           },
           onComplete: async (fullResponse) => {
-            try {
-              await handleSpeak(fullResponse);
-            } catch (error) {
-              console.error('Error speaking AI response:', error);
-            }
-            setIsProcessing(false);
+            // Wait a moment before speaking to avoid overlapping with user's voice
+            setTimeout(async () => {
+              if (!isMuted) {
+                await speakWithFallback(fullResponse);
+              }
+            }, 500);
           },
           onError: (error) => {
-            console.error('Error in streaming response:', error);
-            setIsProcessing(false);
-            setMessages(prev => prev.map(msg => 
-              msg.id === tempMessageId
-                ? { ...msg, text: "I'm sorry, I encountered an error. Please try again." }
-                : msg
-            ));
+            console.error('Error streaming response:', error);
+            
+            // Update the temporary message to indicate error
+            setMessages(prevMessages => 
+              prevMessages.map(msg => 
+                msg.id === tempMessageId 
+                  ? { ...msg, text: 'Sorry, I encountered an error processing your request. Please try again.' } 
+                  : msg
+              )
+            );
+            
+            toast.error('Error generating response. Please try again.', {
+              duration: 3000,
+              position: 'bottom-center',
+            });
           }
         },
         'beginner',
         selectedLanguage
       );
     } catch (error) {
-      console.error('Error processing message:', error);
+      console.error('Error processing input:', error);
+      
+      // Update the temporary message to indicate error
+      setMessages(prevMessages => 
+        prevMessages.map(msg => 
+          msg.id === tempMessageId 
+            ? { ...msg, text: 'Sorry, I encountered an error processing your request. Please try again.' } 
+            : msg
+        )
+      );
+      
+      toast.error('Error processing your input. Please try again.', {
+        duration: 3000,
+        position: 'bottom-center',
+      });
+    } finally {
       setIsProcessing(false);
-      setMessages(prev => prev.map(msg => 
-        msg.id === tempMessageId
-          ? { ...msg, text: "I'm sorry, I encountered an error. Please try again." }
-          : msg
-      ));
     }
   };
   
@@ -392,12 +438,16 @@ function ConversationContent() {
   };
 
   // Function to handle text-to-speech
-  const handleSpeak = async (text: string) => {
+  const speakWithFallback = async (text: string) => {
     try {
-      await stopSpeaking(); // Stop any ongoing speech
       await speak(text);
     } catch (error) {
       console.error('Error speaking:', error);
+      // Show a visual indication that the AI response couldn't be spoken
+      toast.error('Could not speak the response. Audio may be disabled.', {
+        duration: 3000,
+        position: 'bottom-center',
+      });
     }
   };
 
@@ -646,7 +696,7 @@ function ConversationContent() {
                   <p>{message.text}</p>
                           {message.sender === 'ai' && (
                     <button 
-                              onClick={() => handleSpeak(message.text)}
+                              onClick={() => speakWithFallback(message.text)}
                               className={`ml-2 p-1.5 rounded-full transition-colors ${
                                 isSpeaking 
                                   ? 'bg-red-500 hover:bg-red-600' 
