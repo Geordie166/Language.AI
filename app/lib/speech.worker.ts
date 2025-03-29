@@ -1,8 +1,12 @@
+/// <reference lib="webworker" />
+
 // Speech worker implementation
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 
-// Export the worker class
-export default {} as typeof Worker & { new (): Worker };
+declare const self: DedicatedWorkerGlobalScope;
+
+// Export for worker-loader
+export default {} as typeof Worker & (new () => Worker);
 
 // Global variables
 let speechConfig: sdk.SpeechConfig | null = null;
@@ -33,7 +37,7 @@ const initializeSpeechSDK = (apiKey: string, region: string) => {
     // Set connection timeout
     speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs, "5000");
     speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs, "5000");
-    speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_ReconnectBackOffMs, "1000");
+    speechConfig.setProperty("SPEECH_ServiceConnection_ReconnectBackOffMs", "1000");
 
     self.postMessage({ 
       type: 'initialized',
@@ -255,53 +259,58 @@ const resumeListening = () => {
   }
 };
 
-// Speak text
+// Speak text using text-to-speech
 const speak = async (text: string) => {
-  if (!speechConfig || isMuted) {
-    if (isMuted) {
-      self.postMessage({ 
-        type: 'speakComplete',
-        payload: { success: true, muted: true }
-      });
-    } else {
-      self.postMessage({ 
-        type: 'error', 
-        payload: 'Speech SDK not initialized'
-      });
-    }
+  if (!speechConfig) {
+    self.postMessage({ 
+      type: 'error', 
+      payload: 'Speech SDK not initialized'
+    });
     return;
   }
 
   try {
-    // Create new synthesizer for each request
-    const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
-    const newSynthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
-
-    // Start synthesis
-    const result = await new Promise<sdk.SpeechSynthesisResult>((resolve, reject) => {
-      newSynthesizer.speakTextAsync(
-        text,
-        (result) => resolve(result),
-        (error) => reject(error)
-      );
-    });
-
-    if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-      self.postMessage({
-        type: 'speakComplete',
-        payload: { success: true }
-      });
-    } else {
-      throw new Error(`Synthesis failed: ${result.reason}`);
+    // Create the synthesizer if it doesn't exist
+    if (!synthesizer) {
+      const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
+      synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
     }
 
-    // Clean up
-    newSynthesizer.close();
+    // Synthesize the text
+    return new Promise<void>((resolve, reject) => {
+      synthesizer!.speakTextAsync(
+        text,
+        (result) => {
+          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+            self.postMessage({
+              type: 'synthesisComplete',
+              payload: { success: true }
+            });
+            resolve();
+          } else {
+            const error = `Synthesis failed: ${result.errorDetails}`;
+            self.postMessage({
+              type: 'error',
+              payload: error
+            });
+            reject(new Error(error));
+          }
+        },
+        (error) => {
+          console.error('Error in speak:', error);
+          self.postMessage({
+            type: 'error',
+            payload: String(error)
+          });
+          reject(error);
+        }
+      );
+    });
   } catch (error) {
-    console.error('Speech synthesis error:', error);
-    self.postMessage({ 
-      type: 'error', 
-      payload: error instanceof Error ? error.message : String(error)
+    console.error('Error in speak:', error);
+    self.postMessage({
+      type: 'error',
+      payload: String(error)
     });
   }
 };
@@ -309,7 +318,7 @@ const speak = async (text: string) => {
 // Stop speaking
 const stopSpeaking = () => {
   if (!synthesizer) {
-    self.postMessage({ 
+    self.postMessage({
       type: 'speakingStopped',
       payload: { success: true }
     });
@@ -324,9 +333,10 @@ const stopSpeaking = () => {
       payload: { success: true }
     });
   } catch (error) {
-    self.postMessage({ 
-      type: 'error', 
-      payload: error instanceof Error ? error.message : String(error)
+    console.error('Error stopping synthesis:', error);
+    self.postMessage({
+      type: 'error',
+      payload: String(error)
     });
   }
 };
@@ -364,35 +374,52 @@ const setMuted = (muted: boolean) => {
 };
 
 // Message handler
-self.onmessage = (event: MessageEvent) => {
+self.addEventListener('message', async (event: MessageEvent) => {
   const { type, payload } = event.data;
 
-  switch (type) {
-    case 'init':
-      initializeSpeechSDK(payload.apiKey, payload.region);
-      break;
-    case 'startListening':
-      startListening();
-      break;
-    case 'stopListening':
-      stopListening();
-      break;
-    case 'dispose':
-      cleanup();
-      break;
-    case 'speak':
-      speak(payload.text);
-      break;
-    case 'setLanguage':
-      setLanguage(payload.language);
-      break;
-    case 'setMuted':
-      setMuted(payload.muted);
-      break;
-    default:
-      console.warn('Unknown message type:', type);
+  try {
+    switch (type) {
+      case 'init':
+        initializeSpeechSDK(payload.apiKey, payload.region);
+        break;
+      case 'startListening':
+        startListening();
+        break;
+      case 'stopListening':
+        stopListening();
+        break;
+      case 'pauseListening':
+        pauseListening();
+        break;
+      case 'resumeListening':
+        resumeListening();
+        break;
+      case 'setLanguage':
+        setLanguage(payload.language);
+        break;
+      case 'speak':
+        await speak(payload.text);
+        break;
+      case 'stopSpeaking':
+        stopSpeaking();
+        break;
+      case 'dispose':
+        cleanup();
+        break;
+      case 'setMuted':
+        setMuted(payload.muted);
+        break;
+      default:
+        console.warn('Unknown message type:', type);
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
+    self.postMessage({
+      type: 'error',
+      payload: String(error)
+    });
   }
-};
+});
 
 // Signal that the worker is ready
 self.postMessage({ type: 'ready' }); 

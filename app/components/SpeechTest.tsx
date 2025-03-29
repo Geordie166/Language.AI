@@ -1,22 +1,35 @@
 'use client';
 
-import React, { useState } from 'react';
-import { SpeechService } from '../lib/speech-service';
+import React, { useState, useEffect } from 'react';
+import { SpeechService, ISpeechService } from '../lib/speech-service';
 
 export default function SpeechTest() {
   const [isRecording, setIsRecording] = useState(false);
   const [recognizedText, setRecognizedText] = useState('');
   const [synthesizedText, setSynthesizedText] = useState('');
   const [error, setError] = useState('');
-  const [speechService] = useState(() => new SpeechService());
+  const [speechService, setSpeechService] = useState<ISpeechService | null>(null);
+
+  useEffect(() => {
+    // Initialize speech service
+    const service = new SpeechService();
+    setSpeechService(service);
+
+    // Cleanup on unmount
+    return () => {
+      service.dispose();
+    };
+  }, []);
 
   const startRecording = async () => {
+    if (!speechService) return;
+
     try {
       setError('');
       setIsRecording(true);
       setRecognizedText('Listening...');
       
-      speechService.startListening(
+      await speechService.startListening(
         (interimText) => {
           setRecognizedText(`Interim: ${interimText}`);
         },
@@ -32,6 +45,8 @@ export default function SpeechTest() {
   };
 
   const stopRecording = async () => {
+    if (!speechService) return;
+
     try {
       await speechService.stopListening();
       setIsRecording(false);
@@ -41,6 +56,8 @@ export default function SpeechTest() {
   };
 
   const testTextToSpeech = async () => {
+    if (!speechService) return;
+
     try {
       setError('');
       const textToSpeak = "¡Hola! ¿Cómo estás? Soy tu asistente de idiomas.";
