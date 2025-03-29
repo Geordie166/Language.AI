@@ -1,33 +1,28 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useSpeech } from '../contexts/SpeechContext';
+import { useSpeech } from '../context/speech-context';
 
 export default function SpeechTestPage() {
-  const { 
-    startListening, 
-    stopListening, 
-    speak, 
-    stopSpeaking,
-    pauseListening,
-    resumeListening,
-    setMuted,
-    isPaused,
-    isMuted,
-    isListening,
-    isSpeaking,
-    setLanguage,
-    currentLanguage
-  } = useSpeech();
+  const { speechService, isInitialized, error } = useSpeech();
   
   const [recognizedText, setRecognizedText] = useState('');
   const [textToSpeak, setTextToSpeak] = useState('');
   const [status, setStatus] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState('english');
 
   const handleStartListening = async () => {
+    if (!speechService || !isInitialized) {
+      setStatus('Speech service not initialized');
+      return;
+    }
+
     try {
       setStatus('Starting listening...');
-      await startListening(
+      setIsListening(true);
+      await speechService.startListening(
         (interimText: string) => {
           setRecognizedText(interimText);
         },
@@ -40,10 +35,28 @@ export default function SpeechTestPage() {
     } catch (error: any) {
       console.error('Error starting listening:', error);
       setStatus(`Error: ${error.message || 'Unknown error'}`);
+      setIsListening(false);
+    }
+  };
+
+  const handleStopListening = async () => {
+    if (!speechService || !isInitialized) return;
+    try {
+      await speechService.stopListening();
+      setIsListening(false);
+      setStatus('Listening stopped');
+    } catch (error: any) {
+      console.error('Error stopping listening:', error);
+      setStatus(`Error: ${error.message || 'Unknown error'}`);
     }
   };
 
   const handleSpeak = async () => {
+    if (!speechService || !isInitialized) {
+      setStatus('Speech service not initialized');
+      return;
+    }
+
     if (!textToSpeak.trim()) {
       setStatus('Please enter text to speak');
       return;
@@ -51,24 +64,63 @@ export default function SpeechTestPage() {
     
     try {
       setStatus('Speaking...');
-      await speak(textToSpeak);
+      setIsSpeaking(true);
+      await speechService.speak(textToSpeak);
       setStatus('Speaking completed');
+      setIsSpeaking(false);
     } catch (error: any) {
       console.error('Error speaking:', error);
+      setStatus(`Error: ${error.message || 'Unknown error'}`);
+      setIsSpeaking(false);
+    }
+  };
+
+  const handleStopSpeaking = async () => {
+    if (!speechService || !isInitialized) return;
+    try {
+      await speechService.stopSpeaking();
+      setIsSpeaking(false);
+      setStatus('Speaking stopped');
+    } catch (error: any) {
+      console.error('Error stopping speech:', error);
       setStatus(`Error: ${error.message || 'Unknown error'}`);
     }
   };
 
   const handleChangeLanguage = async (language: string) => {
+    if (!speechService || !isInitialized) return;
     try {
       setStatus(`Changing language to ${language}...`);
-      await setLanguage(language);
+      await speechService.setLanguage(language);
+      setCurrentLanguage(language);
       setStatus(`Language changed to ${language}`);
     } catch (error: any) {
       console.error('Error changing language:', error);
       setStatus(`Error: ${error.message || 'Unknown error'}`);
     }
   };
+
+  if (!isInitialized) {
+    return (
+      <div className="container mx-auto p-6">
+        <h1 className="text-2xl font-bold mb-6">Speech Service Test</h1>
+        <div className="p-4 bg-yellow-100 text-yellow-800 rounded">
+          Initializing speech service...
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <h1 className="text-2xl font-bold mb-6">Speech Service Test</h1>
+        <div className="p-4 bg-red-100 text-red-800 rounded">
+          Error: {error}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6">
@@ -89,14 +141,6 @@ export default function SpeechTestPage() {
           <span>{isSpeaking ? 'Yes' : 'No'}</span>
         </div>
         <div className="mb-2">
-          <span className="font-medium">Paused: </span>
-          <span>{isPaused ? 'Yes' : 'No'}</span>
-        </div>
-        <div className="mb-2">
-          <span className="font-medium">Muted: </span>
-          <span>{isMuted ? 'Yes' : 'No'}</span>
-        </div>
-        <div className="mb-2">
           <span className="font-medium">Current language: </span>
           <span>{currentLanguage}</span>
         </div>
@@ -113,41 +157,18 @@ export default function SpeechTestPage() {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={handleStartListening}
-              disabled={isListening && !isPaused}
-              className="px-4 py-2 bg-primary-600 text-white rounded disabled:opacity-50"
+              disabled={isListening}
+              className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
             >
               Start Listening
             </button>
             
             <button
-              onClick={stopListening}
+              onClick={handleStopListening}
               disabled={!isListening}
               className="px-4 py-2 bg-red-600 text-white rounded disabled:opacity-50"
             >
               Stop Listening
-            </button>
-            
-            <button
-              onClick={pauseListening}
-              disabled={!isListening || isPaused}
-              className="px-4 py-2 bg-yellow-600 text-white rounded disabled:opacity-50"
-            >
-              Pause
-            </button>
-            
-            <button
-              onClick={async () => {
-                try {
-                  await resumeListening();
-                } catch (error: any) {
-                  console.error('Error resuming listening:', error);
-                  setStatus(`Error: ${error.message || 'Unknown error'}`);
-                }
-              }}
-              disabled={!isListening || !isPaused}
-              className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-50"
-            >
-              Resume
             </button>
           </div>
         </div>
@@ -169,24 +190,17 @@ export default function SpeechTestPage() {
             <button
               onClick={handleSpeak}
               disabled={isSpeaking || !textToSpeak.trim()}
-              className="px-4 py-2 bg-primary-600 text-white rounded disabled:opacity-50"
+              className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
             >
               Speak
             </button>
             
             <button
-              onClick={stopSpeaking}
+              onClick={handleStopSpeaking}
               disabled={!isSpeaking}
               className="px-4 py-2 bg-red-600 text-white rounded disabled:opacity-50"
             >
               Stop Speaking
-            </button>
-            
-            <button
-              onClick={() => setMuted(!isMuted)}
-              className={`px-4 py-2 ${isMuted ? 'bg-green-600' : 'bg-yellow-600'} text-white rounded`}
-            >
-              {isMuted ? 'Unmute' : 'Mute'}
             </button>
           </div>
         </div>
@@ -198,26 +212,22 @@ export default function SpeechTestPage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => handleChangeLanguage('english')}
-            disabled={currentLanguage === 'english'}
-            className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+            className={`px-4 py-2 ${
+              currentLanguage === 'english' ? 'bg-blue-600' : 'bg-gray-600'
+            } text-white rounded`}
           >
             English
           </button>
           
           <button
             onClick={() => handleChangeLanguage('spanish')}
-            disabled={currentLanguage === 'spanish'}
-            className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+            className={`px-4 py-2 ${
+              currentLanguage === 'spanish' ? 'bg-blue-600' : 'bg-gray-600'
+            } text-white rounded`}
           >
             Spanish
           </button>
         </div>
-      </div>
-
-      <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
-        <h2 className="text-lg font-semibold mb-2">Debug Information</h2>
-        <p className="mb-2">Check the browser console for detailed logs about the speech service execution.</p>
-        <p>If you're experiencing issues, press F12 to open developer tools and look at the console tab for error messages.</p>
       </div>
     </div>
   );
