@@ -1,28 +1,20 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { SpeechService, ISpeechService } from '../lib/speech-service';
+import React, { useState } from 'react';
+import { useSpeech } from '../context/speech-context';
 
 export default function SpeechTest() {
   const [isRecording, setIsRecording] = useState(false);
   const [recognizedText, setRecognizedText] = useState('');
   const [synthesizedText, setSynthesizedText] = useState('');
   const [error, setError] = useState('');
-  const [speechService, setSpeechService] = useState<ISpeechService | null>(null);
-
-  useEffect(() => {
-    // Initialize speech service
-    const service = new SpeechService();
-    setSpeechService(service);
-
-    // Cleanup on unmount
-    return () => {
-      service.dispose();
-    };
-  }, []);
+  const { speechService, isInitialized, error: serviceError } = useSpeech();
 
   const startRecording = async () => {
-    if (!speechService) return;
+    if (!speechService || !isInitialized) {
+      setError('Speech service not initialized');
+      return;
+    }
 
     try {
       setError('');
@@ -45,7 +37,10 @@ export default function SpeechTest() {
   };
 
   const stopRecording = async () => {
-    if (!speechService) return;
+    if (!speechService || !isInitialized) {
+      setError('Speech service not initialized');
+      return;
+    }
 
     try {
       await speechService.stopListening();
@@ -56,7 +51,10 @@ export default function SpeechTest() {
   };
 
   const testTextToSpeech = async () => {
-    if (!speechService) return;
+    if (!speechService || !isInitialized) {
+      setError('Speech service not initialized');
+      return;
+    }
 
     try {
       setError('');
@@ -67,6 +65,16 @@ export default function SpeechTest() {
       setError(err instanceof Error ? err.message : 'An error occurred');
     }
   };
+
+  if (serviceError) {
+    return (
+      <div className="p-6 max-w-lg mx-auto bg-white rounded-xl shadow-md">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {serviceError}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-lg mx-auto bg-white rounded-xl shadow-md space-y-4">
@@ -88,6 +96,7 @@ export default function SpeechTest() {
                 ? 'bg-red-500 hover:bg-red-600' 
                 : 'bg-blue-500 hover:bg-blue-600'
             } text-white`}
+            disabled={!isInitialized}
           >
             {isRecording ? 'Stop Recording' : 'Start Recording'}
           </button>
@@ -101,6 +110,7 @@ export default function SpeechTest() {
           <button
             onClick={testTextToSpeech}
             className="w-full py-2 px-4 bg-green-500 hover:bg-green-600 text-white rounded-md"
+            disabled={!isInitialized}
           >
             Test Text-to-Speech
           </button>
