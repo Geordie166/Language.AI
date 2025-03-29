@@ -3,6 +3,12 @@
 import React, { useState } from 'react';
 import type { WaitlistEntry } from '../lib/types';
 
+declare global {
+  interface Window {
+    gtag?: (command: string, action: string, params: object) => void;
+  }
+}
+
 interface FormData {
   fullName: string;
   email: string;
@@ -22,39 +28,34 @@ export default function WaitlistForm() {
     email: '',
     phoneNumber: '',
   });
-
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
+    let isValid = true;
 
-    // Full name validation
     if (!formData.fullName.trim()) {
       newErrors.fullName = 'Full name is required';
-    } else if (formData.fullName.length < 2) {
-      newErrors.fullName = 'Full name must be at least 2 characters long';
+      isValid = false;
     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
-    } else if (!emailRegex.test(formData.email)) {
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email address is required';
+      isValid = false;
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Please enter a valid email address';
+      isValid = false;
     }
 
-    // Phone number validation (optional)
-    if (formData.phoneNumber) {
-      const phoneRegex = /^\+?[\d\s-]{10,}$/;
-      if (!phoneRegex.test(formData.phoneNumber)) {
-        newErrors.phoneNumber = 'Please enter a valid phone number';
-      }
+    if (formData.phoneNumber.trim() && !/^\+?[0-9\s\-()]{10,}$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = 'Please enter a valid phone number';
+      isValid = false;
     }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return isValid;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -68,19 +69,24 @@ export default function WaitlistForm() {
     }
 
     try {
-      // TODO: Replace with actual API call
-      const waitlistEntry: WaitlistEntry = {
-        id: Math.random().toString(36).substr(2, 9),
-        fullName: formData.fullName,
-        email: formData.email,
-        phoneNumber: formData.phoneNumber || undefined,
-        joinedDate: new Date().toISOString(),
-        status: 'pending',
-      };
+      const response = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fullName: formData.fullName,
+          email: formData.email,
+          phoneNumber: formData.phoneNumber || undefined,
+          source: 'website',
+        }),
+      });
 
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log('Waitlist entry:', waitlistEntry);
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to join waitlist');
+      }
 
       setIsSuccess(true);
       setFormData({
@@ -88,9 +94,18 @@ export default function WaitlistForm() {
         email: '',
         phoneNumber: '',
       });
+      
+      // Optional: Track conversion with analytics
+      if (typeof window !== 'undefined' && window.gtag) {
+        window.gtag('event', 'waitlist_signup', {
+          event_category: 'engagement',
+          event_label: 'waitlist',
+        });
+      }
     } catch (error) {
+      console.error('Error submitting form:', error);
       setErrors({
-        submit: 'Failed to join waitlist. Please try again.',
+        submit: error instanceof Error ? error.message : 'Failed to join waitlist. Please try again.',
       });
     } finally {
       setIsSubmitting(false);
