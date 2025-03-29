@@ -16,128 +16,121 @@ interface StreamCallbacks {
 export class OpenAIService {
   private openai: OpenAI;
   private conversationHistory: Array<{ role: 'system' | 'user' | 'assistant', content: string }> = [];
+  private systemMessage: string = '';
+  private currentLanguage: string = 'english';
 
   constructor() {
-    if (typeof window === 'undefined') {
-      throw new Error('OpenAI service should only be initialized on the client side');
-    }
-
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
     if (!apiKey) {
-      console.error('OpenAI API key not found in environment variables');
       throw new Error('OpenAI API key not found');
     }
-
-    try {
-      console.log('Initializing OpenAI service...');
-      this.openai = new OpenAI({ 
-        apiKey,
-        dangerouslyAllowBrowser: true
-      });
-      console.log('OpenAI service initialized successfully');
-    } catch (error) {
-      console.error('Error initializing OpenAI service:', error);
-      throw new Error('Failed to initialize OpenAI service');
-    }
-
-    // Initialize with system message
-    this.conversationHistory = [{
-      role: 'system',
-      content: this.getSystemPrompt('english', 'beginner')
-    }];
+    this.openai = new OpenAI({ apiKey });
+    this.systemMessage = this.getSystemPrompt('english', 'beginner');
   }
 
   private getSystemPrompt(language: string, level: string): string {
-    return `You are an expert ${language} language learning assistant with deep knowledge of language acquisition, teaching methodologies, and cultural context. Your role is to:
+    const basePrompt = language === 'english'
+      ? `You are a helpful and patient English language tutor. Your goal is to help the user practice and improve their English through natural conversation.
+         - Adapt your language complexity to their ${level} level
+         - Provide gentle corrections for grammar or vocabulary mistakes
+         - Keep responses concise and natural
+         - Encourage the user to express themselves
+         - If you notice a mistake, provide the correction in parentheses after your response`
+      : `Eres un tutor de español servicial y paciente. Tu objetivo es ayudar al usuario a practicar y mejorar su español a través de una conversación natural.
+         - Adapta la complejidad de tu lenguaje a su nivel ${level}
+         - Proporciona correcciones suaves para errores de gramática o vocabulario
+         - Mantén las respuestas concisas y naturales
+         - Anima al usuario a expresarse
+         - Si notas un error, proporciona la corrección entre paréntesis después de tu respuesta`;
 
-1. CONVERSATION:
-- Engage in natural, level-appropriate conversations
-- Use vocabulary and structures suitable for a ${level} level student
-- Incorporate cultural context when relevant
-- Keep responses concise (2-3 sentences max unless explanation needed)
-
-2. CORRECTIONS:
-- Identify and correct errors naturally within the conversation
-- Provide brief, clear explanations for corrections
-- Focus on errors that impact comprehension or are relevant to the student's level
-
-3. ADAPTATION:
-- Gradually increase complexity as the student shows proficiency
-- Rephrase when the student seems confused
-- Use scaffolding techniques to support learning
-
-4. ENGAGEMENT:
-- Ask follow-up questions to encourage conversation
-- Provide positive reinforcement
-- Create opportunities for the student to practice target structures
-
-Current language: ${language}
-Student's level: ${level}
-
-Always maintain a supportive, patient tone. Focus on building confidence while ensuring accuracy.`;
+    return basePrompt;
   }
 
-  public updateSystemMessage(language: string, level: string = 'beginner'): void {
-    if (this.conversationHistory.length > 0) {
-      this.conversationHistory[0] = {
-        role: 'system',
-        content: this.getSystemPrompt(language, level)
-      };
+  public async updateSystemMessage(language: string, level: string): Promise<void> {
+    this.conversationHistory = []; // Reset conversation history on language change
+    this.systemMessage = this.getSystemPrompt(language, level);
+    this.currentLanguage = language;
+  }
+
+  private async getGrammarCorrections(text: string, language: string): Promise<string | null> {
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4-turbo-preview",
+        messages: [
+          {
+            role: "system",
+            content: language === 'english'
+              ? "You are a language correction assistant. Analyze the text for grammar, vocabulary, and pronunciation errors. Provide corrections in a clear, concise format."
+              : "Eres un asistente de corrección de idiomas. Analiza el texto en busca de errores de gramática, vocabulario y pronunciación. Proporciona correcciones en un formato claro y conciso."
+          },
+          {
+            role: "user",
+            content: text
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 150
+      });
+
+      const corrections = response.choices[0]?.message?.content?.trim();
+      return corrections && corrections !== text ? corrections : null;
+    } catch (error) {
+      console.error('Error getting grammar corrections:', error);
+      return null;
     }
   }
 
-  async getStreamingResponse(
-    userMessage: string,
+  public async getStreamingResponse(
+    userInput: string,
     callbacks: StreamCallbacks,
-    languageLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner',
-    targetLanguage: string = 'english'
+    level: string,
+    language: string
   ): Promise<void> {
     try {
-      console.log('Starting streaming response...');
-      // Add user message to history
+      // Add user message to conversation history
       this.conversationHistory.push({
-        role: 'user',
-        content: userMessage
+        role: "user",
+        content: userInput
       });
 
-      let fullResponse = '';
-
-      // Stream the response
-      console.log('Creating chat completion stream...');
+      // Get streaming response from OpenAI
       const stream = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: this.conversationHistory,
+        model: "gpt-4-turbo-preview",
+        messages: [
+          { role: "system", content: this.getSystemPrompt(language, level) },
+          ...this.conversationHistory
+        ],
         stream: true,
         temperature: 0.7,
         max_tokens: 150
       });
 
-      console.log('Stream created, processing chunks...');
+      let fullResponse = '';
+
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || '';
-        if (content) {
-          fullResponse += content;
-          callbacks.onToken(content);
-        }
+        fullResponse += content;
+        callbacks.onToken(content);
       }
 
-      console.log('Stream processing complete');
-      // Add assistant's response to history
+      // Add AI response to conversation history
       this.conversationHistory.push({
-        role: 'assistant',
+        role: "assistant",
         content: fullResponse
       });
 
-      // Keep history at a reasonable length
-      if (this.conversationHistory.length > 20) {
-        this.conversationHistory = [
-          this.conversationHistory[0],
-          ...this.conversationHistory.slice(-19)
-        ];
+      // Keep conversation history manageable
+      if (this.conversationHistory.length > 10) {
+        this.conversationHistory = this.conversationHistory.slice(-10);
+      }
+
+      // Get grammar corrections in parallel
+      const corrections = await this.getGrammarCorrections(userInput, language);
+      if (corrections) {
+        callbacks.onToken(`\n\n${language === 'english' ? 'Corrections' : 'Correcciones'}: ${corrections}`);
       }
 
       callbacks.onComplete(fullResponse);
-
     } catch (error) {
       console.error('Error in streaming response:', error);
       callbacks.onError(error);
@@ -217,33 +210,9 @@ Always maintain a supportive, patient tone. Focus on building confidence while e
     }
   }
 
-  async getGrammarCorrections(text: string): Promise<{ corrections: GrammarCorrection[] }> {
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: 'Analyze the following message for language corrections. Return corrections array.'
-          },
-          {
-            role: 'user',
-            content: text
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 150
-      });
-
-      return { corrections: [] }; // Temporarily disable corrections
-    } catch (error) {
-      console.error('Error getting grammar corrections:', error);
-      return { corrections: [] };
-    }
-  }
-
   // Reset conversation history but keep system message
   resetConversation(): void {
-    this.conversationHistory = [this.conversationHistory[0]];
+    this.conversationHistory = [];
+    this.systemMessage = this.getSystemPrompt(this.currentLanguage, 'beginner');
   }
 } 

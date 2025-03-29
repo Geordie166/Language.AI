@@ -217,20 +217,22 @@ export class SpeechService {
   setMuted(muted: boolean): void {
     this.isMuted = muted;
     if (this.synthesizer) {
-      // Store current volume and set to 0 if muted, restore if unmuted
-      if (muted) {
-        this.volume = 1;
-        this.volume = 0;
-      } else {
-        this.volume = 1;
-      }
+      this.volume = muted ? 0 : 1;
     }
   }
 
   async pauseListening(): Promise<void> {
-    if (this.isListening && !this.isPaused && this.recognizer) {
-      this.isPaused = true;
-      await this.recognizer.stopContinuousRecognitionAsync();
+    if (!this.isListening || this.isPaused) return;
+    
+    try {
+      if (this.recognizer) {
+        this.isPaused = true;
+        await this.recognizer.stopContinuousRecognitionAsync();
+      }
+    } catch (error) {
+      console.error('Error pausing listening:', error);
+      this.isPaused = false;
+      throw error;
     }
   }
 
@@ -238,9 +240,15 @@ export class SpeechService {
     onInterimResult: (text: string) => void,
     onFinalResult: (text: string) => void
   ): Promise<void> {
-    if (this.isListening && this.isPaused && this.recognizer) {
+    if (!this.isListening || !this.isPaused) return;
+    
+    try {
       this.isPaused = false;
       await this.startListening(onInterimResult, onFinalResult);
+    } catch (error) {
+      console.error('Error resuming listening:', error);
+      this.isPaused = true;
+      throw error;
     }
   }
 

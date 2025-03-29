@@ -173,11 +173,13 @@ function ConversationContent() {
   }, [scenarioId, selectedLanguage, speak, stopSpeaking]);
   
   const startRecording = async () => {
+    if (isProcessing || isRecording) return;
+    
     try {
       setIsRecording(true);
       setRecognizedText('Listening...');
       
-      startListening(
+      await startListening(
         (interimText) => {
           console.log('Interim text:', interimText);
           setRecognizedText(`${interimText}...`);
@@ -185,14 +187,21 @@ function ConversationContent() {
         (finalText) => {
           console.log('Final text:', finalText);
           setRecognizedText('');
-          processUserInput(finalText);
+          if (finalText.trim()) {
+            processUserInput(finalText);
+          }
           setIsRecording(false);
         }
       );
     } catch (err) {
       console.error('Error starting recording:', err);
       setIsRecording(false);
-      setRecognizedText('Error: Could not start recording');
+      setRecognizedText('Error: Could not start recording. Please check your microphone permissions.');
+      
+      // Auto-reset error message after 3 seconds
+      setTimeout(() => {
+        setRecognizedText('');
+      }, 3000);
     }
   };
   
@@ -434,12 +443,47 @@ function ConversationContent() {
 
   // Update language selection effect
   useEffect(() => {
-    if (openAIService) {
-      openAIService.updateSystemMessage(selectedLanguage, 'beginner');
-    }
-    // Update speech service language
-    setLanguage(selectedLanguage);
-  }, [selectedLanguage, openAIService, setLanguage]);
+    const handleLanguageChange = async () => {
+      try {
+        // Update OpenAI service language
+        if (openAIService) {
+          await openAIService.updateSystemMessage(selectedLanguage, 'beginner');
+        }
+        
+        // Update speech service language
+        await setLanguage(selectedLanguage);
+        
+        // Add a system message indicating language change
+        const languageChangeMessage = selectedLanguage === 'english'
+          ? "Switching to English. I'll now converse with you in English. How can I help you today?"
+          : "Cambiando a Español. Ahora conversaré contigo en Español. ¿Cómo puedo ayudarte hoy?";
+          
+        const systemMessage: Message = {
+          id: Date.now().toString(),
+          text: languageChangeMessage,
+          sender: 'ai',
+          timestamp: Date.now()
+        };
+        
+        setMessages(prev => [...prev, systemMessage]);
+        
+        // Speak the language change message
+        await speak(languageChangeMessage);
+      } catch (error) {
+        console.error('Error changing language:', error);
+        // Add error message if language change fails
+        const errorMessage: Message = {
+          id: Date.now().toString(),
+          text: "Sorry, there was an error changing the language. Please try again.",
+          sender: 'ai',
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    };
+
+    handleLanguageChange();
+  }, [selectedLanguage, openAIService, setLanguage, speak]);
 
   // Add keyboard shortcut handler
   useEffect(() => {
@@ -542,7 +586,7 @@ function ConversationContent() {
                     onChange={(e) => setSelectedLanguage(e.target.value as 'english' | 'spanish')}
                   >
                     <option value="english">English</option>
-                    <option value="spanish" disabled>Spanish (Coming Soon)</option>
+                    <option value="spanish">Spanish</option>
                   </select>
                 </div>
               </div>
