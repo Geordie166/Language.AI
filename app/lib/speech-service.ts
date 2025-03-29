@@ -40,7 +40,9 @@ export class SpeechService implements ISpeechService {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.mediaRecorder = new MediaRecorder(stream);
+      this.mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
       this.audioChunks = [];
       this.isRecording = true;
 
@@ -49,7 +51,7 @@ export class SpeechService implements ISpeechService {
       };
 
       this.mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/mp4' });
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
         try {
           const transcription = await this.transcribeAudio(audioBlob);
           onFinalResult(transcription);
@@ -125,8 +127,8 @@ export class SpeechService implements ISpeechService {
   private async transcribeAudio(audioBlob: Blob): Promise<string> {
     try {
       // Convert Blob to File object
-      const audioFile = new File([audioBlob], 'audio.mp4', { 
-        type: 'audio/mp4',
+      const audioFile = new File([audioBlob], 'audio.webm', { 
+        type: 'audio/webm',
         lastModified: Date.now()
       });
 
