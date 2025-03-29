@@ -16,6 +16,9 @@ const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
   }
 };
 
+// Maximum time to wait for speech operations before timing out
+const OPERATION_TIMEOUT = 5000; // 5 seconds
+
 export class SpeechService {
   private speechConfig: sdk.SpeechConfig | null = null;
   private synthesizer: sdk.SpeechSynthesizer | null = null;
@@ -29,31 +32,51 @@ export class SpeechService {
   private currentLanguage: string = 'english';
   private isInitialized: boolean = false;
   private initPromise: Promise<void> | null = null;
+  private lastError: Error | null = null;
 
   constructor() {
     // Defer initialization until needed - will be initialized on first use
     this.initPromise = null;
     this.isInitialized = false;
+    this.lastError = null;
+    
+    // Add safety cleanup on page unload to prevent memory leaks
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => {
+        this.dispose();
+      });
+    }
+  }
+
+  /**
+   * Get the last error encountered
+   */
+  public getLastError(): Error | null {
+    return this.lastError;
   }
 
   /**
    * Initialize the speech service by fetching an authentication token from the server
    */
   private async initialize(): Promise<void> {
+    // If already initialized, just return
     if (this.isInitialized) {
       return;
     }
 
+    // If initialization is in progress, wait for it
     if (this.initPromise) {
       return this.initPromise;
     }
 
+    // Start initialization process
     this.initPromise = (async () => {
       try {
         console.log('Initializing SpeechService...');
         
         // Fetch token from the API
         const tokenResponse = await fetch('/api/speech-token');
+        
         if (!tokenResponse.ok) {
           const error = await tokenResponse.text();
           console.error('Error fetching speech token:', error);
@@ -75,12 +98,18 @@ export class SpeechService {
         // Set default audio output config
         this.speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_SynthOutputFormat, 'audio-16khz-128kbitrate-mono-mp3');
         
+        // Set timeout property
+        this.speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs, "5000");
+        this.speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs, "1000");
+        
         this.updateLanguageConfig('english');
         console.log('SpeechService initialized successfully');
         this.isInitialized = true;
+        this.lastError = null;
       } catch (err) {
         console.error('Error in SpeechService initialization:', err);
         this.isInitialized = false;
+        this.lastError = err instanceof Error ? err : new Error(String(err));
         throw err;
       } finally {
         this.initPromise = null;
@@ -137,8 +166,7 @@ export class SpeechService {
     
     if (this.synthesizer) {
       console.log('Closing existing synthesizer');
-      await this.synthesizer.close();
-      this.synthesizer = null;
+      await this.safeSynthesizerClose();
     }
     
     if (!this.speechConfig) {
@@ -151,6 +179,74 @@ export class SpeechService {
     this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, audioConfig);
     console.log('Synthesizer initialized');
   }
+  
+  /**
+   * Safely close the synthesizer
+   */
+  private async safeSynthesizerClose(): Promise<void> {
+    if (!this.synthesizer) return;
+    
+    try {
+      // Set a timeout to force close if it takes too long
+      const timeoutId = setTimeout(() => {
+        console.warn('Synthesizer close operation timed out, forcing close');
+        this.synthesizer = null;
+      }, OPERATION_TIMEOUT);
+
+      // Try to close normally
+      await this.synthesizer.close();
+      clearTimeout(timeoutId);
+      this.synthesizer = null;
+    } catch (error) {
+      console.error('Error closing synthesizer:', error);
+      // Force null the reference even if close failed
+      this.synthesizer = null;
+    }
+  }
+  
+  /**
+   * Safely close the recognizer
+   */
+  private async safeRecognizerClose(): Promise<void> {
+    if (!this.recognizer) return;
+    
+    try {
+      // First stop recognition if active
+      if (this.isListening) {
+        try {
+          console.log('Stopping continuous recognition');
+          
+          // Set timeout to force continue if stop takes too long
+          const stopTimeoutId = setTimeout(() => {
+            console.warn('Recognition stop operation timed out, continuing anyway');
+          }, OPERATION_TIMEOUT);
+          
+          await this.recognizer.stopContinuousRecognitionAsync();
+          clearTimeout(stopTimeoutId);
+        } catch (stopError) {
+          console.error('Error stopping recognition:', stopError);
+          // Continue to close even if stop failed
+        }
+      }
+      
+      // Then close
+      console.log('Closing recognizer');
+      
+      // Set timeout to force null if close takes too long
+      const closeTimeoutId = setTimeout(() => {
+        console.warn('Recognizer close operation timed out, forcing close');
+        this.recognizer = null;
+      }, OPERATION_TIMEOUT);
+      
+      await this.recognizer.close();
+      clearTimeout(closeTimeoutId);
+      this.recognizer = null;
+    } catch (error) {
+      console.error('Error safely closing recognizer:', error);
+      // Force null the reference even if close failed
+      this.recognizer = null;
+    }
+  }
 
   private async initRecognizer() {
     console.log('Initializing recognizer...');
@@ -162,8 +258,7 @@ export class SpeechService {
     
     if (this.recognizer) {
       console.log('Closing existing recognizer');
-      await this.recognizer.close();
-      this.recognizer = null;
+      await this.safeRecognizerClose();
     }
     
     if (!this.speechConfig) {
@@ -216,9 +311,17 @@ export class SpeechService {
           return;
         }
 
+        // Set up a timeout in case the operation hangs
+        const timeoutId = setTimeout(() => {
+          this.cleanup().then(() => {
+            reject(new Error('Speech synthesis timed out'));
+          });
+        }, OPERATION_TIMEOUT);
+
         this.synthesizer.speakTextAsync(
           text,
           async (result) => {
+            clearTimeout(timeoutId);
             console.log('Speech synthesis result:', result.reason);
             if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
               console.log('Speech synthesis completed successfully');
@@ -231,6 +334,7 @@ export class SpeechService {
             }
           },
           async (error) => {
+            clearTimeout(timeoutId);
             console.error('Speech synthesis error:', error);
             await this.cleanup();
             reject(error);
@@ -241,6 +345,7 @@ export class SpeechService {
       await this.currentSpeechPromise;
     } catch (error) {
       console.error('Speech synthesis error:', error);
+      this.lastError = error instanceof Error ? error : new Error(String(error));
       throw error;
     } finally {
       await this.cleanup();
@@ -250,8 +355,7 @@ export class SpeechService {
   private async cleanup() {
     console.log('Cleaning up speech resources');
     if (this.synthesizer) {
-      await this.synthesizer.close();
-      this.synthesizer = null;
+      await this.safeSynthesizerClose();
     }
     this.isSpeaking = false;
     this.currentSpeechPromise = null;
@@ -261,8 +365,7 @@ export class SpeechService {
     console.log('Stopping speech');
     if (this.currentSpeechPromise) {
       if (this.synthesizer) {
-        await this.synthesizer.close();
-        this.synthesizer = null;
+        await this.safeSynthesizerClose();
       }
       this.isSpeaking = false;
       this.currentSpeechPromise = null;
@@ -296,41 +399,65 @@ export class SpeechService {
 
       console.log('Setting up recognizer event handlers');
       this.recognizer.recognized = (_, event) => {
-        console.log('Recognized event:', event.result.reason);
-        if (event.result.reason === sdk.ResultReason.RecognizedSpeech) {
-          const text = event.result.text || '';
-          console.log('Final recognition result:', text);
-          onFinalResult(text);
+        try {
+          console.log('Recognized event:', event.result.reason);
+          if (event.result.reason === sdk.ResultReason.RecognizedSpeech) {
+            const text = event.result.text || '';
+            console.log('Final recognition result:', text);
+            onFinalResult(text);
+          }
+        } catch (callbackError) {
+          console.error('Error in recognition callback:', callbackError);
         }
       };
 
       this.recognizer.recognizing = (_, event) => {
-        const text = event.result.text || '';
-        console.log('Interim recognition result:', text);
-        onInterimResult(text);
+        try {
+          const text = event.result.text || '';
+          console.log('Interim recognition result:', text);
+          onInterimResult(text);
+        } catch (callbackError) {
+          console.error('Error in interim recognition callback:', callbackError);
+        }
+      };
+      
+      // Add canceled handler
+      this.recognizer.canceled = (_, event) => {
+        console.log('Recognition canceled:', event.reason);
+        if (event.reason === sdk.CancellationReason.Error) {
+          console.error('Recognition error:', event.errorDetails);
+          this.lastError = new Error(`Recognition error: ${event.errorDetails}`);
+        }
+        this.isListening = false;
       };
 
       console.log('Starting continuous recognition');
+      
+      // Set timeout to continue if start takes too long
+      const startTimeoutId = setTimeout(() => {
+        console.warn('Recognition start operation is taking a long time, check microphone permissions');
+      }, OPERATION_TIMEOUT);
+      
       await this.recognizer.startContinuousRecognitionAsync();
+      clearTimeout(startTimeoutId);
+      
       console.log('Continuous recognition started');
     } catch (error) {
       console.error('Speech recognition error:', error);
       this.isListening = false;
+      this.lastError = error instanceof Error ? error : new Error(String(error));
       throw error;
     }
   }
 
   async stopListening(): Promise<void> {
     console.log('Stopping listening');
-    if (this.recognizer) {
+    if (this.recognizer && this.isListening) {
       try {
-        console.log('Stopping continuous recognition');
-        await this.recognizer.stopContinuousRecognitionAsync();
-        console.log('Closing recognizer');
-        await this.recognizer.close();
-        this.recognizer = null;
+        await this.safeRecognizerClose();
       } catch (error) {
         console.error('Error stopping recognition:', error);
+        this.lastError = error instanceof Error ? error : new Error(String(error));
       }
     }
     this.isListening = false;
@@ -366,12 +493,21 @@ export class SpeechService {
     try {
       if (this.recognizer) {
         this.isPaused = true;
+        
+        // Set timeout in case pause takes too long
+        const pauseTimeoutId = setTimeout(() => {
+          console.warn('Recognition pause operation timed out');
+        }, OPERATION_TIMEOUT);
+        
         await this.recognizer.stopContinuousRecognitionAsync();
+        clearTimeout(pauseTimeoutId);
+        
         console.log('Listening paused');
       }
     } catch (error) {
       console.error('Error pausing listening:', error);
       this.isPaused = false;
+      this.lastError = error instanceof Error ? error : new Error(String(error));
       throw error;
     }
   }
@@ -396,6 +532,7 @@ export class SpeechService {
     } catch (error) {
       console.error('Error resuming listening:', error);
       this.isPaused = true;
+      this.lastError = error instanceof Error ? error : new Error(String(error));
       throw error;
     }
   }
@@ -410,24 +547,57 @@ export class SpeechService {
 
   dispose(): void {
     console.log('Disposing SpeechService');
-    if (this.synthesizer) {
-      this.synthesizer.close();
-      this.synthesizer = null;
+    
+    try {
+      // Cancel any ongoing operations
+      if (this.isSpeaking) {
+        this.stopSpeaking();
+      }
+      
+      if (this.isListening) {
+        this.stopListening();
+      }
+      
+      // Close and null all resources
+      if (this.synthesizer) {
+        try {
+          this.synthesizer.close();
+        } catch (error) {
+          console.error('Error closing synthesizer during dispose:', error);
+        }
+        this.synthesizer = null;
+      }
+      
+      if (this.recognizer) {
+        try {
+          this.recognizer.close();
+        } catch (error) {
+          console.error('Error closing recognizer during dispose:', error);
+        }
+        this.recognizer = null;
+      }
+      
+      if (this.speechConfig) {
+        try {
+          this.speechConfig.close();
+        } catch (error) {
+          console.error('Error closing speech config during dispose:', error);
+        }
+        this.speechConfig = null;
+      }
+      
+      // Reset all state
+      this.isListening = false;
+      this.isSpeaking = false;
+      this.currentSpeechPromise = null;
+      this.isPaused = false;
+      this.isMuted = false;
+      this.isInitialized = false;
+      
+      console.log('SpeechService disposed');
+    } catch (error) {
+      console.error('Error during SpeechService disposal:', error);
+      this.lastError = error instanceof Error ? error : new Error(String(error));
     }
-    if (this.recognizer) {
-      this.recognizer.close();
-      this.recognizer = null;
-    }
-    if (this.speechConfig) {
-      this.speechConfig.close();
-      this.speechConfig = null;
-    }
-    this.isListening = false;
-    this.isSpeaking = false;
-    this.currentSpeechPromise = null;
-    this.isPaused = false;
-    this.isMuted = false;
-    this.isInitialized = false;
-    console.log('SpeechService disposed');
   }
 } 
