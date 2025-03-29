@@ -17,6 +17,8 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
     try {
       const service = new SpeechService();
       setSpeechService(service);
@@ -32,8 +34,14 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const value = {
+    speechService,
+    isInitialized,
+    error
+  };
+
   return (
-    <SpeechContext.Provider value={{ speechService, isInitialized, error }}>
+    <SpeechContext.Provider value={value}>
       {children}
     </SpeechContext.Provider>
   );
@@ -41,6 +49,10 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
 
 export function useSpeech() {
   const context = useContext(SpeechContext);
+  if (typeof window === 'undefined') {
+    // Return a default value during SSR
+    return { speechService: null, isInitialized: false, error: null };
+  }
   if (context === undefined) {
     throw new Error('useSpeech must be used within a SpeechProvider');
   }
