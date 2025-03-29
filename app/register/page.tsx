@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '../contexts/UserContext';
-import type { UserProfile } from '../lib/types';
+import { useUser } from '../context/user-context';
+import type { User } from '../lib/types';
 
 interface FormErrors {
   name?: string;
@@ -16,7 +16,7 @@ interface FormErrors {
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { updateProfile } = useUser();
+  const { user, setUser, isLoading } = useUser();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -30,6 +30,13 @@ export default function RegisterPage() {
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Redirect if user is already logged in
+  React.useEffect(() => {
+    if (user) {
+      router.push('/profile');
+    }
+  }, [user, router]);
 
   const commonGoals = [
     'Improve conversation skills',
@@ -118,19 +125,11 @@ export default function RegisterPage() {
     }
 
     try {
-      // TODO: Replace with actual API call
-      const newProfile: Partial<UserProfile> = {
+      // Create new user
+      const newUser: User = {
         id: Math.random().toString(36).substr(2, 9),
         name: formData.name,
         email: formData.email,
-        password: formData.password, // In real app, this should be hashed
-        nativeLanguage: formData.nativeLanguage,
-        proficiencyLevel: formData.proficiencyLevel,
-        learningGoals: formData.learningGoals,
-        bio: formData.bio,
-        interests: formData.interests,
-        joinedDate: new Date().toISOString(),
-        lastActive: new Date().toISOString(),
         settings: {
           theme: 'light',
           emailNotifications: true,
@@ -149,7 +148,7 @@ export default function RegisterPage() {
         },
       };
 
-      updateProfile(newProfile);
+      setUser(newUser);
       router.push('/profile');
     } catch (err) {
       setErrors(prev => ({ ...prev, submit: 'Failed to create account. Please try again.' }));
@@ -157,6 +156,28 @@ export default function RegisterPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-md mx-auto">
+          <div className="text-center mb-8">
+            <div className="animate-pulse">
+              <div className="h-8 bg-gray-200 rounded w-3/4 mx-auto mb-4"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+            </div>
+          </div>
+          <div className="bg-white shadow rounded-lg p-8">
+            <div className="animate-pulse space-y-6">
+              <div className="h-10 bg-gray-200 rounded"></div>
+              <div className="h-10 bg-gray-200 rounded"></div>
+              <div className="h-10 bg-gray-200 rounded"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
