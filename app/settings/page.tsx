@@ -1,17 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useUser } from '../contexts/UserContext';
 import { useTheme } from '../contexts/ThemeContext';
 import type { UserSettings } from '../lib/types';
 
 export default function SettingsPage() {
   const { userProfile, updateProfile } = useUser();
-  const { theme, toggleTheme } = useTheme();
+  const { isDarkMode, toggleDarkMode } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<UserSettings>(
     userProfile?.settings || {
-      theme: 'light',
+      theme: isDarkMode ? 'dark' : 'light',
       emailNotifications: true,
       practiceReminders: true,
       audioEnabled: true,
@@ -27,6 +27,13 @@ export default function SettingsPage() {
       privacyMode: 'public',
     }
   );
+
+  useEffect(() => {
+    setSettings(prev => ({
+      ...prev,
+      theme: isDarkMode ? 'dark' : 'light'
+    }));
+  }, [isDarkMode]);
 
   const handleSettingChange = (key: keyof UserSettings, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -61,10 +68,10 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <button
-                  onClick={toggleTheme}
+                  onClick={toggleDarkMode}
                   className="px-4 py-2 rounded-md bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300"
                 >
-                  {theme === 'light' ? 'Switch to Dark' : 'Switch to Light'}
+                  {isDarkMode ? 'Switch to Light' : 'Switch to Dark'}
                 </button>
               </div>
 
