@@ -1,15 +1,12 @@
-import { Metadata } from 'next';
+import './globals.css';
+import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import './styles/globals.css';
-import ClientLayout from './ClientLayout';
-import { ThemeProvider } from './contexts/ThemeContext';
-import { Toaster } from 'react-hot-toast';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Language AI - Master Spanish Conversation',
-  description: 'Practice Spanish conversation with AI language partners',
+  title: 'Language Learning Assistant',
+  description: 'Practice conversations with an AI language tutor',
 };
 
 export default function RootLayout({
@@ -18,15 +15,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`h-full ${inter.className}`}>
-      <body className="h-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-        <ThemeProvider>
-          <ClientLayout>
-            {children}
-          </ClientLayout>
-          <Toaster position="bottom-right" />
-        </ThemeProvider>
-      </body>
+    <html lang="en">
+      <body className={inter.className}>{children}</body>
     </html>
   );
 } 
