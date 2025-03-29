@@ -27,39 +27,67 @@ export class SpeechService {
   private currentSpeechPromise: Promise<void> | null = null;
   private volume: number = 1;
   private currentLanguage: string = 'english';
+  private isInitialized: boolean = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    try {
-      console.log('Initializing SpeechService...');
-      const subscriptionKey = process.env.NEXT_PUBLIC_AZURE_SPEECH_KEY;
-      const region = process.env.NEXT_PUBLIC_AZURE_SPEECH_REGION;
+    // Defer initialization until needed - will be initialized on first use
+    this.initPromise = null;
+    this.isInitialized = false;
+  }
 
-      if (!subscriptionKey || !region) {
-        console.error('Azure Speech credentials not found:', { 
-          key: subscriptionKey ? 'present' : 'missing', 
-          region: region ? 'present' : 'missing' 
-        });
-        throw new Error('Azure Speech credentials not found');
-      }
-
-      console.log('Creating Speech config with region:', region);
-      this.speechConfig = sdk.SpeechConfig.fromSubscription(subscriptionKey, region);
-      
-      // Ensure the config isn't null
-      if (!this.speechConfig) {
-        console.error('Failed to create Speech config');
-        throw new Error('Failed to create Speech config');
-      }
-      
-      // Set default audio output config
-      this.speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_SynthOutputFormat, 'audio-16khz-128kbitrate-mono-mp3');
-      
-      this.updateLanguageConfig('english');
-      console.log('SpeechService initialized successfully');
-    } catch (err) {
-      console.error('Error in SpeechService constructor:', err);
-      throw err;
+  /**
+   * Initialize the speech service by fetching an authentication token from the server
+   */
+  private async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      return;
     }
+
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    this.initPromise = (async () => {
+      try {
+        console.log('Initializing SpeechService...');
+        
+        // Fetch token from the API
+        const tokenResponse = await fetch('/api/speech-token');
+        if (!tokenResponse.ok) {
+          const error = await tokenResponse.text();
+          console.error('Error fetching speech token:', error);
+          throw new Error(`Failed to fetch speech token: ${error}`);
+        }
+        
+        const { token, region } = await tokenResponse.json();
+        
+        if (!token || !region) {
+          console.error('Invalid token response:', { token: !!token, region: !!region });
+          throw new Error('Invalid speech token response');
+        }
+        
+        console.log('Received token for region:', region);
+        
+        // Create speech config from auth token
+        this.speechConfig = sdk.SpeechConfig.fromAuthorizationToken(token, region);
+        
+        // Set default audio output config
+        this.speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_SynthOutputFormat, 'audio-16khz-128kbitrate-mono-mp3');
+        
+        this.updateLanguageConfig('english');
+        console.log('SpeechService initialized successfully');
+        this.isInitialized = true;
+      } catch (err) {
+        console.error('Error in SpeechService initialization:', err);
+        this.isInitialized = false;
+        throw err;
+      } finally {
+        this.initPromise = null;
+      }
+    })();
+
+    return this.initPromise;
   }
 
   private updateLanguageConfig(language: string) {
@@ -77,6 +105,12 @@ export class SpeechService {
 
   async setLanguage(language: string) {
     console.log(`Setting language to ${language}`);
+    
+    // Initialize if needed
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
     const oldLanguage = this.currentLanguage;
     this.updateLanguageConfig(language);
     
@@ -95,6 +129,12 @@ export class SpeechService {
 
   private async initSynthesizer() {
     console.log('Initializing synthesizer...');
+    
+    // Initialize if needed
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
     if (this.synthesizer) {
       console.log('Closing existing synthesizer');
       await this.synthesizer.close();
@@ -114,6 +154,12 @@ export class SpeechService {
 
   private async initRecognizer() {
     console.log('Initializing recognizer...');
+    
+    // Initialize if needed
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
     if (this.recognizer) {
       console.log('Closing existing recognizer');
       await this.recognizer.close();
@@ -139,6 +185,12 @@ export class SpeechService {
 
   async speak(text: string): Promise<void> {
     console.log(`Speaking: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+    
+    // Initialize if needed
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
     if (this.isMuted) {
       console.log('Speech muted, skipping');
       return; // Skip speaking when muted
@@ -222,6 +274,12 @@ export class SpeechService {
     onFinalResult: (text: string) => void
   ): Promise<void> {
     console.log('Starting listening...');
+    
+    // Initialize if needed
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
     if (this.isListening) {
       console.log('Already listening, stopping first');
       await this.stopListening();
@@ -281,6 +339,11 @@ export class SpeechService {
 
   // Get pronunciation assessment for a given text
   async assessPronunciation(referenceText: string, spokenText: string): Promise<number> {
+    // Initialize if needed
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
     // For now, return a simple score based on text matching
     // In a future update, we can implement more sophisticated pronunciation assessment
     const normalizedReference = referenceText.toLowerCase().trim();
@@ -314,15 +377,21 @@ export class SpeechService {
   }
 
   async resumeListening(
-    onInterimResult: (text: string) => void,
-    onFinalResult: (text: string) => void
+    onInterimResult?: (text: string) => void,
+    onFinalResult?: (text: string) => void
   ): Promise<void> {
     console.log('Resuming listening');
     if (!this.isListening || !this.isPaused) return;
     
     try {
       this.isPaused = false;
-      await this.startListening(onInterimResult, onFinalResult);
+      // Check if we have the callbacks
+      if (onInterimResult && onFinalResult) {
+        await this.startListening(onInterimResult, onFinalResult);
+      } else {
+        console.error('Cannot resume listening: no callbacks provided');
+        throw new Error('Cannot resume listening: no callbacks provided');
+      }
       console.log('Listening resumed');
     } catch (error) {
       console.error('Error resuming listening:', error);
@@ -358,6 +427,7 @@ export class SpeechService {
     this.currentSpeechPromise = null;
     this.isPaused = false;
     this.isMuted = false;
+    this.isInitialized = false;
     console.log('SpeechService disposed');
   }
 } 
