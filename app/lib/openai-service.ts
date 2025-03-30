@@ -49,7 +49,8 @@ export class OpenAIService {
 
   async getChatResponse(
     userInput: string,
-    config: ConversationConfig
+    config: ConversationConfig,
+    onPartialResponse?: (partial: string) => void
   ): Promise<string> {
     try {
       // Add user's message to history
@@ -58,7 +59,7 @@ export class OpenAIService {
         content: userInput
       });
 
-      const completion = await this.openai.chat.completions.create({
+      const stream = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
         messages: [
           {
@@ -69,28 +70,38 @@ export class OpenAIService {
         ],
         temperature: config.temperature || 0.7,
         max_tokens: config.maxTokens || 1048,
+        stream: true,
       });
 
-      const response = completion.choices[0].message.content;
+      let fullResponse = '';
+      
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        fullResponse += content;
+        
+        if (onPartialResponse) {
+          onPartialResponse(fullResponse);
+        }
+      }
 
       // Add assistant's response to history
-      if (response) {
+      if (fullResponse) {
         this.conversationHistory.push({
           role: 'assistant',
-          content: response
+          content: fullResponse
         });
       }
 
-      return response || 'I apologize, but I was unable to generate a response.';
+      return fullResponse || 'I apologize, but I was unable to generate a response.';
     } catch (error) {
       console.error('Error getting chat response:', error);
       throw error;
     }
   }
 
-  async getSessionFeedback(): Promise<string> {
+  async getSessionFeedback(onPartialResponse?: (partial: string) => void): Promise<string> {
     try {
-      const completion = await this.openai.chat.completions.create({
+      const stream = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
         messages: [
           {
@@ -101,9 +112,21 @@ export class OpenAIService {
         ],
         temperature: 0.7,
         max_tokens: 1048,
+        stream: true,
       });
 
-      return completion.choices[0].message.content || 'Unable to generate feedback.';
+      let fullResponse = '';
+      
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        fullResponse += content;
+        
+        if (onPartialResponse) {
+          onPartialResponse(fullResponse);
+        }
+      }
+
+      return fullResponse || 'Unable to generate feedback.';
     } catch (error) {
       console.error('Error getting session feedback:', error);
       throw error;

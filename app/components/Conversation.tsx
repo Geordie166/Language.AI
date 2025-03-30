@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { OpenAIService, ConversationConfig } from '../lib/openai-service';
+import { useAzureSpeech } from '../context/azure-speech-context';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
@@ -17,13 +18,14 @@ import {
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  isInterim?: boolean;
 }
 
 export default function Conversation() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [config, setConfig] = useState<ConversationConfig>({
     level: 'basic1',
     temperature: 0.7,
@@ -31,71 +33,75 @@ export default function Conversation() {
   });
 
   const openAIService = useRef<OpenAIService>(new OpenAIService());
-  const mediaRecorder = useRef<MediaRecorder | null>(null);
-  const audioChunks = useRef<Blob[]>([]);
-
-  useEffect(() => {
-    return () => {
-      if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
-        mediaRecorder.current.stop();
-      }
-    };
-  }, []);
+  const { isInitialized, isListening, error, startListening, stopListening, speak } = useAzureSpeech();
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder.current = new MediaRecorder(stream);
-      audioChunks.current = [];
-
-      mediaRecorder.current.ondataavailable = (event) => {
-        audioChunks.current.push(event.data);
-      };
-
-      mediaRecorder.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' });
-        await processAudioInput(audioBlob);
-        
-        // Clean up the stream
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.current.start();
-      setIsRecording(true);
+      await startListening(
+        // Handle interim results
+        (interimText) => {
+          setInterimTranscript(interimText);
+          setMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage?.isInterim) {
+              return [...prev.slice(0, -1), { role: 'user', content: interimText, isInterim: true }];
+            } else {
+              return [...prev, { role: 'user', content: interimText, isInterim: true }];
+            }
+          });
+        },
+        // Handle final results
+        async (finalText) => {
+          setInterimTranscript('');
+          await processUserInput(finalText);
+        }
+      );
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('Error accessing microphone. Please ensure you have granted microphone permissions.');
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
-      mediaRecorder.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const processAudioInput = async (audioBlob: Blob) => {
+  const stopRecording = async () => {
     try {
-      setIsProcessing(true);
-      const transcription = await openAIService.current.transcribeAudio(audioBlob);
-      await processUserInput(transcription);
+      await stopListening();
+      setInterimTranscript('');
     } catch (error) {
-      console.error('Error processing audio:', error);
-      alert('Error processing audio. Please try again.');
-    } finally {
-      setIsProcessing(false);
+      console.error('Error stopping recording:', error);
     }
   };
 
   const processUserInput = async (input: string) => {
     try {
       setIsProcessing(true);
-      setMessages(prev => [...prev, { role: 'user', content: input }]);
+      // Remove any interim message and add the final user message
+      setMessages(prev => {
+        const withoutInterim = prev.filter(m => !m.isInterim);
+        return [...withoutInterim, { role: 'user', content: input }];
+      });
       
-      const response = await openAIService.current.getChatResponse(input, config);
+      // Add an empty assistant message that will be updated with streaming content
+      setMessages(prev => [...prev, { role: 'assistant', content: '', isInterim: true }]);
       
-      setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+      const response = await openAIService.current.getChatResponse(
+        input,
+        config,
+        (partialResponse) => {
+          // Update the assistant's message with the streaming content
+          setMessages(prev => {
+            const withoutLast = prev.slice(0, -1);
+            return [...withoutLast, { role: 'assistant', content: partialResponse, isInterim: true }];
+          });
+        }
+      );
+      
+      // Update with final response and speak it
+      setMessages(prev => {
+        const withoutLast = prev.slice(0, -1);
+        return [...withoutLast, { role: 'assistant', content: response }];
+      });
+      await speak(response);
+      
       setInputText('');
     } catch (error) {
       console.error('Error processing message:', error);
@@ -114,8 +120,25 @@ export default function Conversation() {
   const handleGetFeedback = async () => {
     try {
       setIsProcessing(true);
-      const feedback = await openAIService.current.getSessionFeedback();
-      setMessages(prev => [...prev, { role: 'assistant', content: feedback }]);
+      // Add an empty feedback message that will be updated with streaming content
+      setMessages(prev => [...prev, { role: 'assistant', content: '', isInterim: true }]);
+      
+      const feedback = await openAIService.current.getSessionFeedback(
+        (partialFeedback) => {
+          // Update the feedback message with the streaming content
+          setMessages(prev => {
+            const withoutLast = prev.slice(0, -1);
+            return [...withoutLast, { role: 'assistant', content: partialFeedback, isInterim: true }];
+          });
+        }
+      );
+      
+      // Update with final feedback and speak it
+      setMessages(prev => {
+        const withoutLast = prev.slice(0, -1);
+        return [...withoutLast, { role: 'assistant', content: feedback }];
+      });
+      await speak(feedback);
     } catch (error) {
       console.error('Error getting feedback:', error);
       alert('Error getting feedback. Please try again.');
@@ -143,6 +166,9 @@ export default function Conversation() {
             <SelectItem value="advanced">Advanced</SelectItem>
           </SelectContent>
         </Select>
+        {error && (
+          <div className="text-red-500 text-sm">{error}</div>
+        )}
       </div>
 
       <Card className="flex-1 p-4 overflow-y-auto">
@@ -157,7 +183,9 @@ export default function Conversation() {
               <div
                 className={`max-w-[80%] p-3 rounded-lg ${
                   message.role === 'user'
-                    ? 'bg-blue-500 text-white'
+                    ? message.isInterim
+                      ? 'bg-blue-300 text-white'
+                      : 'bg-blue-500 text-white'
                     : 'bg-gray-100 text-gray-900'
                 }`}
               >
@@ -173,25 +201,25 @@ export default function Conversation() {
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           placeholder="Type your message..."
-          disabled={isProcessing}
+          disabled={isProcessing || isListening || !isInitialized}
           className="flex-1"
         />
         <Button
           type="button"
-          variant={isRecording ? 'destructive' : 'secondary'}
-          onClick={isRecording ? stopRecording : startRecording}
-          disabled={isProcessing}
+          variant={isListening ? 'destructive' : 'secondary'}
+          onClick={isListening ? stopRecording : startRecording}
+          disabled={isProcessing || !isInitialized}
         >
-          {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+          {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
         </Button>
-        <Button type="submit" disabled={!inputText.trim() || isProcessing}>
+        <Button type="submit" disabled={!inputText.trim() || isProcessing || isListening || !isInitialized}>
           <Send className="h-5 w-5" />
         </Button>
       </form>
 
       <Button
         onClick={handleGetFeedback}
-        disabled={isProcessing || messages.length === 0}
+        disabled={isProcessing || messages.length === 0 || isListening || !isInitialized}
         variant="outline"
       >
         Get Session Feedback
