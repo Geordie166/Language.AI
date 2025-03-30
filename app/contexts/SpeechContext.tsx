@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { SpeechService } from '../lib/speech-service';
+import SpeechService from '@/app/lib/speech-service';
 
 interface SpeechContextType {
   isListening: boolean;

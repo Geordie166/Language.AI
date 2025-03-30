@@ -3,7 +3,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Achievement } from '@/app/lib/achievement-service';
-import { Progress } from '@/components/ui/progress';
+import { Progress } from '@/app/components/ui/progress';
 
 interface AchievementCardProps {
   achievement: Achievement;

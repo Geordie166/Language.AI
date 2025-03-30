@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { SpeechService } from './lib/speech-service';
+import SpeechService from '@/app/lib/speech-service';
 
 export default function TestSpeechWorker() {
   const [speechService, setSpeechService] = useState<SpeechService | null>(null);
