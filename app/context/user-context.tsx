@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { UserSettings } from '@/app/lib/types';
 
 interface User {
   id: string;
@@ -8,29 +9,75 @@ interface User {
   email: string;
 }
 
+interface UserProgress {
+  statistics: {
+    totalConversations: number;
+    totalPracticeTime: number;
+    currentStreak: number;
+  };
+  achievements: Array<{
+    id: string;
+    name: string;
+    description: string;
+    earnedDate: string;
+  }>;
+}
+
+interface UserProfile extends User {
+  nativeLanguage: string;
+  proficiencyLevel: 'beginner' | 'intermediate' | 'advanced';
+  learningGoals: string[];
+  joinedDate: string;
+  settings: UserSettings;
+}
+
 interface UserContextType {
   user: User | null;
   setUser: (user: User | null) => void;
   isLoading: boolean;
+  userProfile: UserProfile | null;
+  userProgress: UserProgress | null;
+  updateProfile: (profile: UserProfile) => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
+    const loadUserData = async () => {
+      try {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+          
+          // Load user profile
+          const response = await fetch('/api/profile');
+          if (response.ok) {
+            const profile = await response.json();
+            setUserProfile(profile);
+          }
+
+          // Load user progress
+          const progressResponse = await fetch('/api/progress');
+          if (progressResponse.ok) {
+            const progress = await progressResponse.json();
+            setUserProgress(progress);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error('Error loading user:', error);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    loadUserData();
   }, []);
 
   const value = {
@@ -41,9 +88,33 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('user', JSON.stringify(newUser));
       } else {
         localStorage.removeItem('user');
+        setUserProfile(null);
+        setUserProgress(null);
       }
     },
-    isLoading
+    isLoading,
+    userProfile,
+    userProgress,
+    updateProfile: async (profile: UserProfile) => {
+      try {
+        const response = await fetch('/api/profile/update', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(profile),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update profile');
+        }
+
+        setUserProfile(profile);
+      } catch (error) {
+        console.error('Error updating profile:', error);
+        throw error;
+      }
+    }
   };
 
   return (
@@ -57,7 +128,7 @@ export function useUser() {
   const context = useContext(UserContext);
   if (typeof window === 'undefined') {
     // Return a default value during SSR
-    return { user: null, setUser: () => {}, isLoading: true };
+    return { user: null, setUser: () => {}, isLoading: true, userProfile: null, userProgress: null, updateProfile: async () => {} };
   }
   if (context === undefined) {
     throw new Error('useUser must be used within a UserProvider');

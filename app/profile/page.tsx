@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useUser } from '../contexts/UserContext';
+import { useUser } from '@/app/context/user-context';
 import Link from 'next/link';
-import type { UserProfile } from '../lib/types';
+import type { UserProfile } from '@/app/lib/types';
+
+export const dynamic = 'force-dynamic';
 
 type EditFormData = Pick<UserProfile, 'name' | 'email' | 'nativeLanguage' | 'proficiencyLevel' | 'learningGoals'>;
 
@@ -57,16 +59,30 @@ export default function ProfilePage() {
 
   const handleSave = async () => {
     try {
-      // TODO: Replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
-      updateProfile({
-        ...userProfile,
+      // Validate form data
+      if (!editForm.name || !editForm.email || !editForm.nativeLanguage || !editForm.proficiencyLevel) {
+        setError('Please fill in all required fields.');
+        return;
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(editForm.email)) {
+        setError('Please enter a valid email address.');
+        return;
+      }
+
+      // Update profile through the context
+      await updateProfile({
+        ...userProfile!,
         ...editForm,
       });
+      
       setIsEditing(false);
       setError('');
     } catch (err) {
-      setError('Failed to update profile. Please try again.');
+      console.error('Error updating profile:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update profile. Please try again.');
     }
   };
 

@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useUser } from '../../contexts/UserContext';
-import type { WaitlistEntry } from '../../lib/types';
+import { useUser } from '@/app/context/user-context';
+import type { WaitlistEntry, UserProfile } from '@/app/lib/types';
+
+export const dynamic = 'force-dynamic';
 
 interface SortConfig {
   key: keyof WaitlistEntry;
@@ -15,7 +17,7 @@ interface FilterConfig {
 }
 
 export default function WaitlistAdminPage() {
-  const { userProfile } = useUser();
+  const { userProfile, isLoading } = useUser();
   const [entries, setEntries] = useState<WaitlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,8 +56,16 @@ export default function WaitlistAdminPage() {
     fetchWaitlistEntries();
   }, []);
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
   // Check if user has admin access
-  if (!userProfile?.id || userProfile?.settings?.privacyMode !== 'admin') {
+  if (!userProfile || userProfile.settings.privacyMode !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
