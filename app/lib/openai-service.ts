@@ -1,8 +1,7 @@
 import OpenAI from 'openai';
 
 export interface ConversationConfig {
-  level: 'basic1' | 'basic2' | 'intermediate' | 'advanced';
-  topic?: string;
+  level: 'basic' | 'premium';
   temperature?: number;
   maxTokens?: number;
 }
@@ -19,18 +18,53 @@ export class OpenAIService {
   }
 
   private getSystemPrompt(config: ConversationConfig): string {
-    const basePrompt = `You are an expert language tutor specializing in conversational English. 
-    Your role is to maintain a friendly, patient, and encouraging demeanor while providing natural conversation practice.
-    Focus on ${config.level} level vocabulary and grammar.
-    ${config.topic ? `The conversation topic is: ${config.topic}.` : ''}
-    
-    Remember to:
-    - Keep responses concise (2-3 sentences per turn)
-    - Use natural speech patterns appropriate for ${config.level} level
-    - Provide positive reinforcement
-    - Note but don't over-correct mistakes
-    - Track and gently correct pronunciation, grammar, and vocabulary issues
-    - Maintain conversation history to reference previous corrections`;
+    const packageDescriptions = {
+      basic: 'simple conversations using everyday vocabulary and basic grammar, focusing on common situations',
+      premium: 'advanced conversations with rich vocabulary, idiomatic expressions, and complex grammar structures'
+    };
+
+    const basePrompt = `You are MyVoiceCoach.ai, an expert language tutor specializing in conversational English. 
+Your role is to engage in natural, interactive conversations while helping users improve their English speaking skills.
+
+Package: ${config.level} (${packageDescriptions[config.level]})
+
+Key responsibilities:
+1. Maintain natural conversation flow:
+   - Ask follow-up questions to keep the conversation going
+   - Show interest in the user's responses
+   - Share relevant experiences or examples
+
+2. Provide guidance based on package level:
+   Basic Package:
+   - Focus on essential vocabulary and basic grammar
+   - Use simple, clear sentences
+   - Gentle correction of major errors only
+   - Topics: daily life, hobbies, family, work
+
+   Premium Package:
+   - Advanced vocabulary and complex grammar structures
+   - Idiomatic expressions and cultural context
+   - Detailed feedback and corrections
+   - Topics: current events, abstract concepts, professional scenarios
+   - Pronunciation refinement
+   ${config.level === 'premium' ? '- Provide alternative phrasings and vocabulary enrichment' : ''}
+
+3. Adapt to the user's proficiency:
+   - Adjust pace and complexity based on user responses
+   - Provide scaffolding when needed
+   - Challenge users appropriately
+
+4. Encourage and support:
+   - Provide positive reinforcement
+   - Acknowledge good usage of new vocabulary or grammar
+   - Help when the user struggles
+
+Remember to:
+- Keep responses concise (2-3 sentences)
+- Always ask a follow-up question to maintain conversation flow
+- Use natural speech patterns
+- Stay in character as a friendly, patient tutor
+${config.level === 'premium' ? '- Offer more sophisticated language options and cultural insights' : '- Keep language simple and clear'}`;
 
     return basePrompt;
   }
@@ -53,6 +87,23 @@ export class OpenAIService {
     onPartialResponse?: (partial: string) => void
   ): Promise<string> {
     try {
+      // If this is the first message, add the system prompt
+      if (this.conversationHistory.length === 0) {
+        this.conversationHistory.push({
+          role: 'system',
+          content: this.getSystemPrompt(config)
+        });
+        
+        // Add an initial greeting from the assistant
+        const greeting = `Hi! I'm your English conversation partner. I see you're at a ${config.level} level. Let's practice speaking English together!`;
+        this.conversationHistory.push({
+          role: 'assistant',
+          content: greeting
+        });
+        
+        return greeting;
+      }
+
       // Add user's message to history
       this.conversationHistory.push({
         role: 'user',
@@ -61,13 +112,7 @@ export class OpenAIService {
 
       const stream = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
-        messages: [
-          {
-            role: 'system',
-            content: this.getSystemPrompt(config)
-          },
-          ...this.conversationHistory
-        ],
+        messages: this.conversationHistory,
         temperature: config.temperature || 0.7,
         max_tokens: config.maxTokens || 1048,
         stream: true,

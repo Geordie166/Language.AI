@@ -12,10 +12,13 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
 *.pem
+.env*
+!.env.example
 
 # debug
 npm-debug.log*
@@ -35,6 +38,8 @@ next-env.d.ts
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
 
 # OS generated files
 .DS_Store

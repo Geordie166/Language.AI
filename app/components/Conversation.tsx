@@ -27,13 +27,44 @@ export default function Conversation() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [config, setConfig] = useState<ConversationConfig>({
-    level: 'basic1',
+    level: 'basic',
     temperature: 0.7,
     maxTokens: 1048,
   });
 
   const openAIService = useRef<OpenAIService>(new OpenAIService());
   const { isInitialized, isListening, error, startListening, stopListening, speak } = useAzureSpeech();
+
+  useEffect(() => {
+    // Initialize conversation with a greeting when the component mounts
+    const initializeConversation = async () => {
+      try {
+        setIsProcessing(true);
+        const greeting = await openAIService.current.getChatResponse(
+          '', // Empty input for initial greeting
+          config,
+          (partialResponse) => {
+            setMessages(prev => {
+              if (prev.length === 0) {
+                return [{ role: 'assistant', content: partialResponse, isInterim: true }];
+              }
+              const withoutLast = prev.slice(0, -1);
+              return [...withoutLast, { role: 'assistant', content: partialResponse, isInterim: true }];
+            });
+          }
+        );
+        
+        setMessages([{ role: 'assistant', content: greeting }]);
+        await speak(greeting);
+      } catch (error) {
+        console.error('Error initializing conversation:', error);
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+
+    initializeConversation();
+  }, []); // Only run once when component mounts
 
   const startRecording = async () => {
     try {
@@ -101,6 +132,27 @@ export default function Conversation() {
         return [...withoutLast, { role: 'assistant', content: response }];
       });
       await speak(response);
+
+      // Restart listening after the assistant has finished speaking
+      if (isListening) {
+        await startListening(
+          (interimText) => {
+            setInterimTranscript(interimText);
+            setMessages(prev => {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage?.isInterim) {
+                return [...prev.slice(0, -1), { role: 'user', content: interimText, isInterim: true }];
+              } else {
+                return [...prev, { role: 'user', content: interimText, isInterim: true }];
+              }
+            });
+          },
+          async (finalText) => {
+            setInterimTranscript('');
+            await processUserInput(finalText);
+          }
+        );
+      }
       
       setInputText('');
     } catch (error) {
@@ -157,13 +209,21 @@ export default function Conversation() {
           }
         >
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select level" />
+            <SelectValue placeholder="Select package" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="basic1">Basic 1</SelectItem>
-            <SelectItem value="basic2">Basic 2</SelectItem>
-            <SelectItem value="intermediate">Intermediate</SelectItem>
-            <SelectItem value="advanced">Advanced</SelectItem>
+            <SelectItem value="basic">
+              <div className="flex flex-col">
+                <span className="font-medium">Basic Package</span>
+                <span className="text-sm text-gray-500">Essential conversation practice</span>
+              </div>
+            </SelectItem>
+            <SelectItem value="premium">
+              <div className="flex flex-col">
+                <span className="font-medium">Premium Package</span>
+                <span className="text-sm text-gray-500">Advanced language mastery</span>
+              </div>
+            </SelectItem>
           </SelectContent>
         </Select>
         {error && (
